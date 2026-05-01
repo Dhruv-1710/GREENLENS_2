@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GreenLens Social</title>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/static/favicon.ico">
+    <style>
+        body{
+            font-family: system-ui, Arial;
+            margin:0;
+            background:linear-gradient(#ecfdf5,#f0fdf4);
+        }
+        .post {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .comment {
+            margin-left: 20px;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        button {
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        textarea {
+            resize: vertical;
+        }
+        small {
+            color: gray;
+        }
+        /* NAVBAR */
+
+        .navbar{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:12px 30px;
+            background: linear-gradient(90deg,#065f46,#10b981);
+            color:white;
+            position:sticky;
+            top:0;
+            box-shadow:0 3px 12px rgba(0,0,0,0.15);
+            z-index:1000;
+        }
+
+        /* LEFT LOGO */
+        .nav-left{
+            font-size:20px;
+            font-weight:bold;
+        }
+
+        /* NAV LINKS */
+        .nav-links{
+            display:flex;
+            align-items:center;
+            gap:16px;
+        }
+
+        /* LINKS */
+        .nav-links a{
+            color:white;
+            text-decoration:none;
+            font-weight:500;
+            font-size:14px;
+            padding:6px 8px;
+            border-radius:6px;
+            transition:0.2s;
+        }
+
+        .nav-links a:hover{
+            background:rgba(255,255,255,0.15);
+        }
+        /* SEARCH BOX */
+        #navSearch{
+            padding:7px 10px;
+            border-radius:8px;
+            border:none;
+            width:160px;
+        }
+
+        /* NOTIFICATION ICON */
+        #notifBell{
+            font-size:18px;
+        }
+
+        /* LOGOUT BUTTON */
+        .nav-links button{
+            background:#047857;
+            border:none;
+            color:white;
+            padding:7px 12px;
+            border-radius:7px;
+            font-weight:500;
+            cursor:pointer;
+            transition:0.2s;
+        }
+
+        .nav-links button:hover{
+            background:#065f46;
+        }
+        .notif-dropdown{
+            position:fixed;
+            right:20px;
+            top:70px;
+            background:white;
+            color:black;
+            width:320px;
+            max-width:90vw;
+            max-height:400px;
+            overflow-y:auto;
+            display:none;
+            border:1px solid #ddd;
+            border-radius:10px;
+            box-shadow:0 6px 20px rgba(0,0,0,0.15);
+            padding:10px;
+            z-index:9999;
+        }
+        .notif-item{
+            padding:12px;
+            border-bottom:1px solid #eee;
+            cursor:pointer;
+            border-radius:6px;
+            transition:0.2s;
+        }
+        .notif-item:hover{
+            background:#f3f4f6;
+        }
+        .main-layout{
+            display:grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            gap:20px;
+            margin-top:20px;
+            }
+
+        .left-sidebar .card{
+            border:1px solid #ddd;
+            padding:15px;
+            background:white;
+        }
+
+        .feed-column{
+            background:white;
+            padding:20px;
+            border-radius:12px;
+            box-shadow:0 4px 15px rgba(0,0,0,0.08);
+        }
+
+        .left-sidebar .card,
+        .right-sidebar{
+            border:none;
+            border-radius:12px;
+            box-shadow:0 4px 15px rgba(0,0,0,0.08);
+        }
+        .page-container{
+            max-width:1200px;
+            margin:auto;
+            padding:20px;
+        }
+
+        /* nicer cards */
+        .card{
+            border:1px solid #ddd;
+            padding:15px;
+            background:white;
+            border-radius:10px;
+            box-shadow:0 2px 6px rgba(0,0,0,0.05);
+        }
+
+        /* post box styling */
+        #postInput{
+            width:100%;
+            padding:10px;
+            border:1px solid #ccc;
+            border-radius:8px;
+        }
+
+        /* buttons upgrade */
+        button{
+            background:#10b981;
+            border:none;
+            color:white;
+            padding:7px 12px;
+            border-radius:6px;
+        }
+
+        button:hover{
+            opacity:0.9;
+        }
+
+        /* sidebar sticky effect (linkedin feel 😎) */
+        .left-sidebar{
+            position:sticky;
+            top:80px;
+            height:fit-content;
+        }
+
+        .right-sidebar{
+            position:sticky;
+            top:80px;
+            height:fit-content;
+        }
+        .post-card{
+            border:1px solid #ddd;
+            padding:15px;
+            margin-bottom:20px;
+            border-radius:12px;
+            background:white;
+            box-shadow:0 2px 6px rgba(0,0,0,0.05);
+        }
+
+        .post-header{
+            display:flex;
+            gap:10px;
+            align-items:center;
+            cursor:pointer;
+        }
+
+        .post-avatar{
+            width:45px;
+            height:45px;
+            border-radius:50%;
+            object-fit:cover;
+        }
+
+        .post-author{ font-weight:bold; }
+        .post-time{ font-size:12px; color:gray; }
+
+        .post-content{ margin:12px 0; }
+
+        .post-image{
+            width:100%;
+            border-radius:10px;
+            margin-top:10px;
+        }
+
+        .post-actions{
+            display:flex;
+            gap:10px;
+            margin-top:10px;
+        }
+
+        .post-stats{
+            font-size:14px;
+            color:#555;
+        }
+        input, textarea{
+            padding:10px;
+            border-radius:8px;
+            border:1px solid #ddd;
+        }
+
+        input:focus, textarea:focus{
+            outline:none;
+            border-color:#10b981;
+            box-shadow:0 0 0 2px rgba(16,185,129,0.2);
+        }
+        .unread-notif{
+            background:#ecfdf5;
+            border-left:4px solid #10b981;
+            font-weight:500;
+        }
+    </style>
+</head>
+<body>
+<!-- ================= NAVBAR ================= -->
+<div class="navbar">
+    <div class="nav-left">
+        <b>🌱 GreenLens</b>
+    </div>
+
+    <div class="nav-links">
+    <a href="/community">Feed</a>
+    <a href="/inbox.html">Messages</a>
+
+    <a href="/dashboard">🌍 Map</a>
+    <a href="/">🏠 Landing</a>
+
+    <!-- 🔍 GLOBAL SEARCH -->
+    <input id="navSearch"
+           placeholder="Search users..."
+           oninput="navSearchUsers()"
+           style="padding:5px;">
+
+    <a href="/profile.html">Profile</a>
+
+    <!-- ADMIN LINK -->
+    <a href="/admin.html" id="adminLink" style="display:none;">👑 Admin</a>
+
+    <span id="notifBell" onclick="toggleNotif()" style="position:relative;cursor:pointer;">
+    🔔
+    <span id="notifBadge"
+    style="display:none;
+    position:absolute;
+    top:-6px;
+    right:-8px;
+    background:red;
+    color:white;
+    font-size:11px;
+    padding:2px 6px;
+    border-radius:50%;">
+    </span>
+    </span>
+
+    <button onclick="logout()">Logout</button>
+    </div>
+</div>
+
+
+<div id="navSearchResults"
+style="
+position:fixed;
+top:55px;
+right:260px;
+background:white;
+color:black;
+width:260px;
+max-height:300px;
+overflow-y:auto;
+display:none;
+border:1px solid #ddd;
+border-radius:10px;
+box-shadow:0 6px 20px rgba(0,0,0,0.15);
+z-index:9999;
+"></div>
+
+<div id="notifDropdown" class="notif-dropdown"></div>
+
+<div id="notifPanel"
+     style="display:none; border:1px solid #ccc; padding:10px; margin-bottom:15px;">
+</div>
+<div class="page-container">
+
+    <div class="main-layout">
+
+        <!-- LEFT SIDEBAR -->
+        <div class="left-sidebar">
+
+            <div class="card" style="text-align:center;">
+                <img id="miniAvatar"
+                     style="width:70px;height:70px;border-radius:50%;object-fit:cover;">
+                <h3 id="miniName"></h3>
+                <p id="miniBio"></p>
+                <button onclick="openMyProfile()">View Profile</button>
+            </div>
+
+            <div class="card">
+                <h3>🌱 GreenLens</h3>
+                <p>Eco Social Network</p>
+                <hr>
+                <p>Share climate ideas</p>
+                <p>Join eco events</p>
+                <p>Connect with eco warriors</p>
+            </div>
+
+        </div>
+
+        <!-- FEED COLUMN -->
+        <div class="feed-column">
+
+            <textarea id="postInput" placeholder="Share something..." style="width:100%"></textarea>
+            <br><br>
+            <input type="file" id="imageInput" accept="image/*">
+            <br><br>
+            <button onclick="createPost()">Post</button>
+
+            <hr>
+
+            <div id="feed"></div>
+
+            <div style="text-align:center; margin-top:20px;">
+                <button id="loadMoreBtn" onclick="loadPosts(false)">Load More</button>
+            </div>
+
+        </div>
+
+        <!-- RIGHT SIDEBAR -->
+        <div class="right-sidebar">
+            <h3>🌍 Upcoming Events</h3>
+            <div id="eventsBox">Loading events...</div>
+        </div>
+
+    </div>
+
+</div> <!-- page-container end -->
+<script>
+let uid = null;
+
+let limit = 5;
+let offset = 0;
+let hasMore = true;
+
+
+checkAuth();
+
+
+
+async function checkAuth() {
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if (!data.user) {
+        window.location.href = "/auth";
+        return;
+    }
+
+    uid = data.user;
+
+    syncUser();
+    checkAdmin();
+    loadPosts();
+    loadEvents();
+    loadNotifications();
+    loadUnreadCount();
+
+    setInterval(loadNotificationsDropdown, 5000);
+    setInterval(loadUnreadCount, 3000);
+    setInterval(()=>loadPosts(false), 3000);
+
+    loadMiniProfile();
+}
+
+function formatTime(ts) {
+    if (!ts) return "";
+
+    const past = new Date(ts + "Z"); // force UTC
+    const now = new Date();
+
+    const diff = Math.floor((now - past) / 1000);
+
+    if (diff < 60) return "Just now";
+    if (diff < 3600) return Math.floor(diff/60) + " min ago";
+    if (diff < 86400) return Math.floor(diff/3600) + " hr ago";
+    return Math.floor(diff/86400) + " days ago";
+}
+
+// =======================
+// SYNC USER
+// =======================
+
+async function syncUser() {
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if (!data.user) return;
+
+    await fetch("/api/sync-user", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            uid: data.user   // 👈 username removed
+        })
+    });
+}
+
+// =======================
+// CREATE POST
+// =======================
+
+// =======================
+// CREATE POST
+// =======================
+
+async function createPost(){
+
+    const content = document.getElementById("postInput").value;
+    const image = document.getElementById("imageInput").files[0];
+
+    if(!content && !image){
+        alert("Write something or upload image");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("uid", uid);
+    formData.append("content", content);
+
+    if(image){
+        formData.append("image", image);
+    }
+
+    const res = await fetch("/api/posts",{
+        method:"POST",
+        body:formData
+    });
+
+    const data = await res.json();
+
+    if(data.status){
+        document.getElementById("postInput").value = "";
+        document.getElementById("imageInput").value = "";
+
+        loadPosts(); // refresh feed
+    }
+}
+
+async function checkAdmin(){
+
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if(!data.user) return;
+
+    const userRes = await fetch("/api/user/"+data.user);
+    const user = await userRes.json();
+
+    if(user.is_admin){
+        document.getElementById("adminLink").style.display="inline";
+    }
+
+}
+
+// =======================
+// LOAD POSTS
+// =======================
+
+async function loadPosts(reset = true) {
+
+    if (reset) {
+        offset = 0;
+        hasMore = true;
+        document.getElementById("feed").innerHTML = "";
+    }
+
+    if (!hasMore) return;
+
+    const res = await fetch(`/api/feed/${uid}?limit=${limit}&offset=${offset}`);
+    const data = await res.json();
+
+    const posts = data.posts;
+    hasMore = data.has_more;
+
+    const feed = document.getElementById("feed");
+
+    posts.forEach(post => {
+        const div = document.createElement("div");
+        div.className = "post";
+        div.id = "post-" + post.id;
+
+        let postHTML = "";
+
+        if (!post.is_repost) {
+            postHTML = `
+            <div class="post-card">
+
+                <div class="post-header" onclick="openProfileFromFeed('${post.uid}')">
+                    <img src="${post.avatar || ''}" class="post-avatar">
+
+                    <div>
+                        <div class="post-author">${post.author}</div>
+                        <div class="post-time">${formatTime(post.timestamp)}</div>
+                    </div>
+                </div>
+
+                <div class="post-content">
+                    ${post.content}
+                </div>
+
+                ${post.image_url ? 
+                    `<img src="${post.image_url}" class="post-image">` 
+                    : ""}
+
+                <div class="post-stats">
+                    ❤️ <span id="like-${post.id}">${post.likes}</span>
+                    &nbsp;&nbsp; 🔁 ${post.shares}
+                </div>
+
+                <div class="post-actions">
+                    <button onclick="toggleLike(${post.id})">👍 Like</button>
+                    <button onclick="showRepostBox(${post.id})">🔁 Repost</button>
+                    <button onclick="sharePost(${post.id})">📤 Share</button>
+                </div>
+
+                <div id="repostBox-${post.id}" style="display:none; margin-top:10px;">
+                    <textarea id="repostInput-${post.id}" style="width:100%;" placeholder="Add your thoughts..."></textarea>
+                    <button onclick="submitRepost(${post.id})">Share</button>
+                    <button onclick="hideRepostBox(${post.id})">Cancel</button>
+                </div>
+
+                <div id="comments-${post.id}"></div>
+
+                <input id="commentInput-${post.id}" placeholder="Write comment">
+                <button onclick="addComment(${post.id})">Comment</button>
+
+            </div>
+            `;
+            
+
+
+        } else {
+            const original = post.original;
+
+            postHTML = `
+                <b>${post.author}</b> reposted
+                <small> • ${formatTime(post.timestamp)}</small>
+                <hr>
+                ${
+                    original ? `
+                        <b>${original.author}</b>
+                        <small> • ${formatTime(original.timestamp)}</small>
+                        <br>
+                        ${original.content}
+                    ` : `<i>Original not available</i>`
+                }
+            `;
+        }
+
+        div.innerHTML = postHTML;
+        if(!document.getElementById("post-"+post.id)){
+            feed.appendChild(div);
+        }
+        if (!post.is_repost) {
+            loadComments(post.id);
+        }
+    });
+
+    offset += limit;
+
+    renderLoadMore();
+}
+
+// =======================
+// EDIT POST
+// =======================
+
+function enableEdit(pid) {
+    document.getElementById("content-" + pid).style.display = "none";
+    document.getElementById("editArea-" + pid).style.display = "block";
+}
+
+function cancelEdit(pid) {
+    document.getElementById("content-" + pid).style.display = "block";
+    document.getElementById("editArea-" + pid).style.display = "none";
+}
+
+async function savePost(pid) {
+    const content = document.getElementById("editInput-" + pid).value;
+
+    await fetch("/api/posts/" + pid, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            uid: uid,
+            content: content
+        })
+    });
+
+    document.getElementById("content-" + pid).innerText = content;
+    cancelEdit(pid);
+}
+
+async function deletePost(pid) {
+    if (!confirm("Delete this post?")) return;
+
+    await fetch("/api/posts/" + pid, {
+        method: "DELETE",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({uid: uid})
+    });
+
+    loadPosts();
+}
+
+// =======================
+// LIKE
+// =======================
+
+async function toggleLike(pid) {
+    const res = await fetch("/api/posts/like/" + pid, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({uid: uid})
+    });
+
+    const data = await res.json();
+    document.getElementById("like-" + pid).innerText = data.likes;
+}
+
+function showRepostBox(pid) {
+    document.getElementById("repostBox-" + pid).style.display = "block";
+}
+
+function hideRepostBox(pid) {
+    document.getElementById("repostBox-" + pid).style.display = "none";
+}
+
+async function submitRepost(pid) {
+    const thought = document.getElementById("repostInput-" + pid).value;
+
+    await fetch("/api/posts/repost/" + pid, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid, thought })
+    });
+
+    loadPosts();
+}
+// =======================
+// LOAD COMMENTS
+// =======================
+
+async function loadComments(pid) {
+    const res = await fetch("/api/comments/" + pid);
+    const comments = await res.json();
+
+    const box = document.getElementById("comments-" + pid);
+    box.innerHTML = "";
+
+    comments.forEach(c => {
+        const div = document.createElement("div");
+        div.className = "comment";
+
+        div.innerHTML = `
+            <div id="commentText-${c.id}">
+                <b>${c.author}</b>
+                <small> • ${formatTime(c.timestamp)}</small>
+                : ${c.text}
+            </div>
+
+            <div id="commentEdit-${c.id}" style="display:none;">
+                <textarea id="commentInputEdit-${c.id}" style="width:90%">${c.text}</textarea>
+                <button onclick="saveComment(${c.id}, ${pid})">Save</button>
+                <button onclick="cancelCommentEdit(${c.id})">Cancel</button>
+            </div>
+
+            ${c.uid === uid ? `
+                <button onclick="enableCommentEdit(${c.id})">Edit</button>
+                <button onclick="deleteComment(${c.id}, ${pid})">Delete</button>
+            ` : ""}
+        `;
+
+        box.appendChild(div);
+    });
+}
+
+// =======================
+// COMMENT EDIT
+// =======================
+
+function enableCommentEdit(cid) {
+    document.getElementById("commentText-" + cid).style.display = "none";
+    document.getElementById("commentEdit-" + cid).style.display = "block";
+}
+
+function cancelCommentEdit(cid) {
+    document.getElementById("commentText-" + cid).style.display = "block";
+    document.getElementById("commentEdit-" + cid).style.display = "none";
+}
+
+async function saveComment(cid, pid) {
+    const text = document.getElementById("commentInputEdit-" + cid).value;
+
+    await fetch("/api/comments/" + cid, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            uid: uid,
+            text: text
+        })
+    });
+
+    loadComments(pid);
+}
+
+async function deleteComment(cid, pid) {
+    if (!confirm("Delete this comment?")) return;
+
+    await fetch("/api/comments/" + cid, {
+        method: "DELETE",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({uid: uid})
+    });
+
+    loadComments(pid);
+}
+
+// =======================
+// ADD COMMENT
+// =======================
+
+async function addComment(pid) {
+    const input = document.getElementById("commentInput-" + pid);
+    const text = input.value;
+
+    if (!text) return;
+
+    await fetch("/api/comments/" + pid, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            uid: uid,
+            text: text
+        })
+    });
+
+    input.value = "";
+    loadComments(pid);
+}
+
+/* ================= PAGINATION HELPER ================= */
+
+function renderLoadMore() {
+    const btn = document.getElementById("loadMoreBtn");
+    if (!btn) return;   // safety guard
+    btn.style.display = hasMore ? "inline-block" : "none";
+}
+
+// ================= NAVBAR FUNCTIONS =================
+
+async function logout(){
+    await fetch("/api/auth/logout");
+    window.location.href = "/";
+}
+
+
+async function loadNotificationsDropdown(){
+
+    const box = document.getElementById("notifDropdown");
+    if(!box) return;
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    if(box.style.display !== "block") return; // dropdown open ho tabhi update
+
+    box.innerHTML = "<b>Notifications</b><hr>";
+
+    if(data.length === 0){
+        box.innerHTML += "No notifications";
+        return;
+    }
+
+    data.forEach(n=>{
+
+        let text="";
+        let clickAction="";
+
+        if(n.type==="like"){
+            text="liked your post ❤️";
+            clickAction=`openPostFromNotification(${n.post_id})`;
+        }
+
+        if(n.type==="comment"){
+            text="commented on your post 💬";
+            clickAction=`openPostFromNotification(${n.post_id})`;
+        }
+
+        if(n.type==="repost"){
+            text="reposted your post 🔁";
+            clickAction=`openPostFromNotification(${n.post_id})`;
+        }
+
+        if(n.type==="connect_request"){
+            text="sent you a connection request 🤝";
+            clickAction=`openProfileFromNotification('${n.sender}')`;
+        }
+
+        if(n.type==="connect_accept"){
+            text="accepted your connection 🎉";
+            clickAction=`openProfileFromNotification('${n.sender}')`;
+        }
+
+        const unreadClass = !n.is_read ? "unread-notif" : "";
+
+        box.innerHTML += `
+        <div class="notif-item ${unreadClass}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+
+                <div onclick="${clickAction}" style="cursor:pointer;">
+                    <b>${n.sender}</b> ${text}
+                </div>
+
+                <span onclick="deleteNotification(${n.id})"
+                style="cursor:pointer;color:#888;font-weight:bold;">✖</span>
+
+            </div>
+        </div>
+        `;
+    });
+}
+
+
+// =======================
+// TOGGLE NOTIFICATION DROPDOWN (FINAL SAFE)
+// =======================
+async function toggleNotif(){
+
+    const box = document.getElementById("notifDropdown");
+
+    // 🛟 safety guard (very important)
+    if(!box) return;
+
+    // toggle close
+    if(box.style.display === "block"){
+        box.style.display = "none";
+        return;
+    }
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    box.innerHTML = "<b>Notifications</b><hr>";
+
+    if(data.length === 0){
+        box.innerHTML += "No notifications";
+    }
+
+    data.forEach(n=>{
+
+        const unreadClass = !n.is_read ? "unread-notif" : "";
+
+        let text = "";
+        let clickAction = "";
+
+    if(n.type==="like"){
+        text = "liked your post ❤️";
+        clickAction = `openPostFromNotification(${n.post_id})`;
+    }
+
+    if(n.type==="comment"){
+        text = "commented on your post 💬";
+        clickAction = `openPostFromNotification(${n.post_id})`;
+    }
+
+    if(n.type==="repost"){
+        text = "reposted your post 🔁";
+        clickAction = `openPostFromNotification(${n.post_id})`;
+    }
+
+    if(n.type==="connect_request"){
+        text = "sent you a connection request 🤝";
+        clickAction = `openProfileFromNotification('${n.sender}')`;
+    }
+
+    if(n.type==="connect_accept"){
+        text = "accepted your connection 🎉";
+        clickAction = `openProfileFromNotification('${n.sender}')`;
+    }
+
+    box.innerHTML += `
+    <div class="notif-item ${unreadClass}">
+
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+
+            <div onclick="${clickAction}" style="cursor:pointer;">
+                <b>${n.sender}</b> ${text}
+            </div>
+
+            <span onclick="deleteNotification(${n.id})"
+            style="cursor:pointer; color:#888; font-weight:bold;">
+            ✖
+            </span>
+
+        </div>
+
+    </div>
+    `;
+});
+
+    box.style.display = "block";
+
+    // ⭐ mark notifications as read
+    await fetch("/api/notifications/read/" + uid, {method:"POST"});
+
+    // ⭐ refresh unread badge
+    loadUnreadCount();
+}
+
+
+
+// ================= OPEN NOTIFICATION =================
+function openNotification(postId){
+    window.location.href = "/community#post-" + postId;
+}
+// =======================
+// OPEN POST FROM NOTIFICATION
+// =======================
+
+
+// =======================
+// NOTIFICATIONS UI
+// =======================
+async function deleteNotification(id){
+
+    await fetch("/api/notifications/delete/" + id,{
+        method:"DELETE"
+    });
+
+    toggleNotif();
+    loadUnreadCount(); // refresh notifications
+}
+
+let notifications = [];
+
+async function loadNotifications(){
+
+    // safety guard (important)
+    if(!document.getElementById("notifBell")) return;
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    updateBadge(data.length);
+}
+
+function updateBadge(count){
+    const badge = document.getElementById("notifBadge");
+    if(!badge) return;   // 👈 prevent crash
+
+    if(count > 0){
+        badge.style.display="inline-block";
+        badge.innerText=count;
+    }else{
+        badge.style.display="none";
+    }
+}
+
+
+
+
+
+// =======================
+// LOAD EVENTS SIDEBAR
+// =======================
+
+async function loadEvents(){
+    const res = await fetch("/api/events");
+    const events = await res.json();
+
+    const box = document.getElementById("eventsBox");
+    box.innerHTML = "";
+
+    if(events.length === 0){
+        box.innerHTML = "No upcoming events";
+        return;
+    }
+
+    events.forEach(e=>{
+        box.innerHTML += `
+            <div style="margin-bottom:12px;">
+                <b>${e.title}</b><br>
+                <small>${new Date(e.date+"Z").toDateString()}</small><br>
+                <small>${e.location}</small>
+                <hr>
+            </div>
+        `;
+    });
+}
+
+// =======================
+// LOAD UNREAD COUNT (🔔 number)
+// =======================
+async function loadUnreadCount(){
+
+    const bell = document.getElementById("notifBell");
+    const badge = document.getElementById("notifBadge");
+
+    // safety guard (other pages me navbar nahi hota)
+    if(!bell || !badge) return;
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    const unread = data.filter(n => !n.is_read).length;
+
+    updateBadge(unread);
+}
+
+
+// ================= GLOBAL NAV SEARCH =================
+async function navSearchUsers(){
+    const query = document.getElementById("navSearch").value;
+    const box = document.getElementById("navSearchResults");
+
+    if(!query){
+        box.style.display="none";
+        return;
+    }
+
+    // session uid fetch
+    const resUser = await fetch("/api/auth/me");
+    const userData = await resUser.json();
+    const uid = userData.user;
+
+    const res = await fetch(`/api/users/search/${query}/${uid}`);
+    const users = await res.json();
+
+    box.innerHTML="";
+    box.style.display="block";
+
+    users.forEach(u=>{
+        box.innerHTML += `
+            <div style="padding:6px; cursor:pointer;"
+                 onclick="openProfile('${u.uid}')">
+                <b>${u.name}</b><br>
+                <small>${u.bio}</small>
+            </div>
+            <hr>
+        `;
+    });
+}
+
+function openProfile(uid){
+    window.location.href="/profile.html?uid="+uid;
+}
+
+// click outside → close dropdown
+document.addEventListener("click", function(e){
+    if(!e.target.closest("#navSearch")){
+        const box=document.getElementById("navSearchResults");
+        if(box) box.style.display="none";
+    }
+});
+
+function openProfileFromFeed(uid){
+    window.location.href = "/profile.html?uid=" + uid;
+}
+
+// ===== MINI PROFILE LOAD =====
+async function loadMiniProfile(){
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+    if(!data.user) return;
+
+    const uid = data.user;
+    const userRes = await fetch("/api/user/" + uid);
+    const user = await userRes.json();
+
+    document.getElementById("miniAvatar").src = user.avatar || "";
+    document.getElementById("miniName").innerText = user.name;
+    document.getElementById("miniBio").innerText = user.bio;
+}
+
+function openMyProfile(){
+    window.location.href="/profile.html";
+}
+
+// ================= SHARE POST =================
+function sharePost(postId){
+
+    const url = window.location.origin + "/community#post-" + postId;
+    const text = "Check this post on GreenLens 🌱";
+
+    // mobile share (best UX)
+    if(navigator.share){
+        navigator.share({
+            title:"GreenLens Post",
+            text:text,
+            url:url
+        });
+        return;
+    }
+
+    // desktop fallback
+    const shareLinks = `
+Share this post:
+
+LinkedIn:
+https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}
+
+Twitter:
+https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}
+
+WhatsApp:
+https://wa.me/?text=${encodeURIComponent(text+" "+url)}
+    `;
+
+    alert(shareLinks);
+}
+
+function openProfileFromNotification(uid){
+    window.location.href = "/profile.html?uid=" + uid;
+}
+
+function openPostFromNotification(postId){
+    if(!postId) return;
+    window.location.href = "/community#post-" + postId;
+}
+
+
+
+</script>
+
+</body>
+</html>

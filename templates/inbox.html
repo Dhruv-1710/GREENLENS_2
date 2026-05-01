@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Messages Inbox</title>
+<meta charset="UTF-8">
+<link rel="icon" href="/static/favicon.ico">
+
+<style>
+body{
+    font-family: system-ui, Arial;
+    margin:0;
+    background:linear-gradient(#ecfdf5,#f0fdf4);
+}
+
+.chat{
+    display:flex;
+    gap:15px;
+    padding:15px;
+    background:white;
+    margin:10px;
+    border-radius:12px;
+    cursor:pointer;
+    align-items:center;
+    box-shadow:0 2px 8px rgba(0,0,0,0.08);
+    transition:0.2s;
+}
+
+.chat:hover{
+    transform:scale(1.01);
+}
+
+.avatar{
+    width:50px;
+    height:50px;
+    border-radius:50%;
+    object-fit:cover;
+}
+
+.time{
+    font-size:12px;
+    color:gray;
+}
+
+.unread{
+    background:#10b981;
+    color:white;
+    padding:4px 8px;
+    border-radius:12px;
+    font-size:12px;
+    margin-top:5px;
+    display:inline-block;
+}
+.inbox-container{
+    max-width:600px;
+    margin:auto;
+    padding:20px;
+}
+
+.chat-item{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    border-bottom:1px solid #eee;
+    cursor:pointer;
+    transition:0.2s;
+}
+
+.chat-item:hover{
+    background:#f3f4f6;
+}
+
+.chat-avatar{
+    width:50px;
+    height:50px;
+    border-radius:50%;
+    object-fit:cover;
+}
+
+.chat-name{ font-weight:bold; }
+.chat-last{ color:gray; font-size:14px; }
+.chat-time{ font-size:12px; color:gray; margin-left:auto; }
+</style>
+</head>
+
+<body>
+
+<div class="inbox-container">
+    <h2>💬 Messages</h2>
+    <div id="chatList">Loading chats...</div>
+</div>
+
+<div id="chatList"></div>
+
+<script>
+
+let uid = null;
+
+checkAuth();
+
+async function checkAuth(){
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if(!data.user){
+        window.location.href="/";
+        return;
+    }
+
+    uid = data.user;
+    loadInbox();
+}
+
+function formatTime(ts){
+    const past=new Date(ts+"Z");
+    const diff=(Date.now()-past)/1000;
+
+    if(diff<60) return "now";
+    if(diff<3600) return Math.floor(diff/60)+"m";
+    if(diff<86400) return Math.floor(diff/3600)+"h";
+    return Math.floor(diff/86400)+"d";
+}
+
+async function loadInbox(){
+    const res = await fetch("/api/messages/inbox/"+uid);
+    const chats = await res.json();
+
+    const box = document.getElementById("chatList");
+    box.innerHTML="";
+
+    chats.forEach(c=>{
+        box.innerHTML += `
+            <div class="chat" onclick="openChat('${c.uid}')">
+                <img src="${c.avatar}" class="avatar">
+
+                <div style="flex:1">
+                    <b>${c.name}</b><br>
+                    ${c.last_message}
+                </div>
+
+                <div style="text-align:right">
+                    <div class="time">${formatTime(c.timestamp)}</div>
+                    ${c.unread>0 ? `<div class="unread">${c.unread}</div>`:""}
+                </div>
+            </div>
+        `;
+    });
+}
+
+function openChat(other){
+    window.location.href="/messages.html?uid="+other;
+}
+
+</script>
+
+</body>
+</html>

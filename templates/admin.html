@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>GreenLens Admin Dashboard</title>
+<meta charset="UTF-8">
+<link rel="icon" href="/static/favicon.ico">
+
+<style>
+
+body{
+    font-family:system-ui,Arial;
+    margin:0;
+    background:linear-gradient(#ecfdf5,#f0fdf4);
+}
+
+/* NAVBAR */
+
+.navbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 24px;
+    background:linear-gradient(90deg,#065f46,#10b981);
+    color:white;
+}
+
+.navbar a{
+    color:white;
+    text-decoration:none;
+    margin-right:15px;
+}
+
+.container{
+    max-width:900px;
+    margin:30px auto;
+}
+
+.card{
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 4px 15px rgba(0,0,0,0.08);
+    margin-bottom:25px;
+}
+
+input,textarea{
+    width:100%;
+    padding:10px;
+    margin-bottom:12px;
+    border-radius:6px;
+    border:1px solid #ccc;
+}
+
+button{
+    padding:8px 14px;
+    border:none;
+    background:#10b981;
+    color:white;
+    border-radius:6px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#059669;
+}
+
+.small-btn{
+    padding:5px 10px;
+    font-size:12px;
+}
+
+.item{
+    border-bottom:1px solid #eee;
+    padding:8px 0;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- NAVBAR -->
+
+<div class="navbar">
+
+<div>
+🌱 <b>GreenLens Admin</b>
+</div>
+
+<div>
+<a href="/community">🏠 Home</a>
+<button onclick="logout()">Logout</button>
+</div>
+
+</div>
+
+
+<div class="container">
+
+<!-- CREATE EVENT -->
+
+<div class="card">
+
+<h2>👑 Create Event</h2>
+
+<input id="title" placeholder="Event Title">
+
+<input id="location" placeholder="Location">
+
+<input type="date" id="date">
+
+<textarea id="description" placeholder="Event Description"></textarea>
+
+<input type="file" id="image">
+
+<button onclick="createEventAdmin()">Create Event</button>
+
+<p id="status"></p>
+
+</div>
+
+
+<!-- EVENTS LIST -->
+
+<div class="card">
+
+<h2>📅 All Events</h2>
+
+<div id="eventsList">Loading events...</div>
+
+</div>
+
+
+<!-- USERS -->
+
+<div class="card">
+
+<h2>👥 All Users</h2>
+
+<div id="usersList">Loading users...</div>
+
+</div>
+
+
+<!-- POSTS -->
+
+<div class="card">
+
+<h2>📝 All Posts</h2>
+
+<div id="postsList">Loading posts...</div>
+
+</div>
+
+</div>
+
+
+
+<script>
+
+/* ================= ADMIN ACCESS CHECK ================= */
+
+async function checkAdminAccess(){
+
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if(!data.user){
+        window.location.href="/";
+        return;
+    }
+
+    const userRes = await fetch("/api/user/"+data.user);
+    const user = await userRes.json();
+
+    if(!user.is_admin){
+        alert("Admin access required");
+        window.location.href="/community";
+    }
+
+}
+
+
+/* ================= LOGOUT ================= */
+
+async function logout(){
+    await fetch("/api/auth/logout");
+    window.location.href="/";
+}
+
+
+/* ================= CREATE EVENT ================= */
+
+async function createEventAdmin(){
+
+    const formData = new FormData();
+
+    formData.append("title",document.getElementById("title").value);
+    formData.append("location",document.getElementById("location").value);
+    formData.append("description",document.getElementById("description").value);
+    formData.append("date",document.getElementById("date").value);
+
+    const img=document.getElementById("image").files[0];
+    if(img) formData.append("image",img);
+
+    const res = await fetch("/api/admin/events",{
+        method:"POST",
+        body:formData
+    });
+
+    const data = await res.json();
+
+    if(data.status){
+        document.getElementById("status").innerText="✅ Event Created!";
+        loadEventsAdmin();
+    }else{
+        document.getElementById("status").innerText="❌ "+data.error;
+    }
+
+}
+
+
+/* ================= LOAD EVENTS ================= */
+
+async function loadEventsAdmin(){
+
+    const res = await fetch("/api/events");
+    const events = await res.json();
+
+    const box=document.getElementById("eventsList");
+    box.innerHTML="";
+
+    if(events.length===0){
+        box.innerHTML="No events";
+        return;
+    }
+
+    events.forEach(e=>{
+
+        box.innerHTML+=`
+
+        <div class="item">
+
+        <b>${e.title}</b><br>
+        <small>${new Date(e.date+"Z").toDateString()}</small><br>
+        <small>${e.location}</small><br>
+
+        <button class="small-btn" onclick="deleteEvent(${e.id})">🗑 Delete</button>
+
+        </div>
+
+        `;
+
+    });
+
+}
+
+
+/* ================= DELETE EVENT ================= */
+
+async function deleteEvent(id){
+
+    if(!confirm("Delete this event?")) return;
+
+    await fetch("/api/admin/events/delete/"+id,{
+        method:"DELETE"
+    });
+
+    loadEventsAdmin();
+
+}
+
+
+/* ================= LOAD USERS ================= */
+
+async function loadUsers(){
+
+    const res=await fetch("/api/admin/users");
+    const users=await res.json();
+
+    const box=document.getElementById("usersList");
+    box.innerHTML="";
+
+    users.forEach(u=>{
+
+        box.innerHTML+=`
+
+        <div class="item">
+
+        <b>${u.name}</b><br>
+        <small>${u.email}</small><br>
+        <small>${u.bio}</small>
+
+        </div>
+
+        `;
+
+    });
+
+}
+
+
+/* ================= LOAD POSTS ================= */
+
+async function loadPostsAdmin(){
+
+    const res=await fetch("/api/admin/posts");
+    const posts=await res.json();
+
+    const box=document.getElementById("postsList");
+    box.innerHTML="";
+
+    posts.forEach(p=>{
+
+        box.innerHTML+=`
+
+        <div class="item">
+
+        <b>${p.author}</b><br>
+        ${p.content}<br>
+        ❤️ ${p.likes}<br>
+
+        <button class="small-btn" onclick="deletePostAdmin(${p.id})">🗑 Delete</button>
+
+        </div>
+
+        `;
+
+    });
+
+}
+
+
+/* ================= DELETE POST ================= */
+
+async function deletePostAdmin(id){
+
+    if(!confirm("Delete this post?")) return;
+
+    await fetch("/api/admin/posts/delete/"+id,{
+        method:"DELETE"
+    });
+
+    loadPostsAdmin();
+
+}
+
+
+/* ================= INIT ================= */
+
+async function initAdmin(){
+
+    await checkAdminAccess();
+
+    loadEventsAdmin();
+    loadUsers();
+    loadPostsAdmin();
+
+}
+
+initAdmin();
+
+</script>
+
+</body>
+</html>

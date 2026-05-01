@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GreenLens Profile</title>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/static/favicon.ico">
+    <style>
+        body{
+            font-family: Arial;
+            margin:0;
+            background:#f3f4f6;
+        }
+        .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; }
+        .post { border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; }
+        .comment { margin-left: 20px; font-size: 14px; margin-top: 5px; }
+        button { cursor: pointer; margin-right: 5px; }
+        a { text-decoration: none; color: green; }
+        textarea { resize: vertical; }
+        small { color: gray; }
+        /* NAVBAR */
+        /* 🌱 MODERN NAVBAR (same as social page) */
+        /* NAVBAR — same as social.html */
+        .navbar{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:12px 24px;
+            background: linear-gradient(90deg,#065f46,#10b981);
+            color:white;
+            position:sticky;
+            top:0;
+            box-shadow:0 2px 10px rgba(0,0,0,0.15);
+        }
+
+        .nav-left{
+            font-size:20px;
+            font-weight:bold;
+        }
+
+        .nav-links a{
+            margin-right:15px;
+            color:white;
+            text-decoration:none;
+            font-weight:500;
+        }
+
+        .nav-links a:hover{
+            text-decoration:underline;
+        }
+
+        
+
+        /* logout button */
+        .nav-links button{
+            background:#10b981;
+            border:none;
+            padding:7px 14px;
+            border-radius:8px;
+            cursor:pointer;
+            font-weight:600;
+        }
+        
+        /* ✨ Modern Inputs */
+        input, textarea{
+            padding:10px;
+            border-radius:8px;
+            border:1px solid #ddd;
+        }
+
+        input:focus, textarea:focus{
+            outline:none;
+            border-color:#10b981;
+            box-shadow:0 0 0 2px rgba(16,185,129,0.2);
+        }
+
+        /* ✨ Card polish */
+        .card{
+            border:none;
+            border-radius:12px;
+            box-shadow:0 4px 15px rgba(0,0,0,0.08);
+        }
+
+        .notif-dropdown{
+            position:fixed;
+            right:20px;
+            top:70px;
+            background:white;
+            color:black;
+            width:320px;
+            max-width:90vw;
+            max-height:400px;
+            overflow-y:auto;
+            display:none;
+            border:1px solid #ddd;
+            border-radius:10px;
+            box-shadow:0 6px 20px rgba(0,0,0,0.15);
+            padding:10px;
+            z-index:9999;
+        }
+
+        .notif-item{
+            padding:12px;
+            border-bottom:1px solid #eee;
+            cursor:pointer;
+            border-radius:6px;
+            transition:0.2s;
+        }
+
+        .notif-item:hover{
+            background:#f3f4f6;
+        }
+
+        .unread-notif{
+            background:#ecfdf5;
+            border-left:4px solid #10b981;
+            font-weight:500;
+        }
+        /* 🌿 Modern Green Buttons */
+        button{
+            background:#10b981;
+            border:none;
+            padding:10px 18px;
+            color:white;
+            border-radius:8px;
+            font-weight:600;
+            cursor:pointer;
+            transition:0.2s;
+        }
+
+        button:hover{
+            background:#059669;
+            transform:translateY(-1px);
+            box-shadow:0 4px 10px rgba(0,0,0,0.15);
+        }
+
+        button:active{
+            transform:scale(0.97);
+                }
+                .secondary-btn{
+            background:#e5e7eb;
+            color:#111;
+        }
+
+        .secondary-btn:hover{
+            background:#d1d5db;
+        }
+        .page-container{
+            max-width:1100px;
+            margin:auto;
+            padding:20px;
+        }
+        /* PROFILE PAGE GRID (same as feed) */
+
+        .profile-header img{
+            width:140px;
+            height:140px;
+            border-radius:50%;
+            object-fit:cover;
+            box-shadow:0 4px 20px rgba(0,0,0,0.2);
+        }
+        .profile-container{
+            max-width:900px;
+            margin:30px auto;
+        }
+        .post{
+            border:none;
+            border-radius:10px;
+            padding:15px;
+            background:white;
+            box-shadow:0 3px 10px rgba(0,0,0,0.08);
+        }    
+        #navSearchResults div:hover{
+            background:#f3f4f6;
+        }
+    </style>
+</head>
+<body>
+<!-- ================= NAVBAR ================= -->
+<!-- ================= NAVBAR (GLOBAL) ================= -->
+<!-- ================= NAVBAR (GLOBAL SAME AS SOCIAL) ================= -->
+<!-- ================= NAVBAR (SAME AS SOCIAL) ================= -->
+<div class="navbar">
+    <div class="nav-left">
+        <b>🌱 GreenLens</b>
+    </div>
+
+    <div class="nav-links">
+        <a href="/community">Feed</a>
+        <a href="/inbox.html">Messages</a>
+
+        <input id="navSearch"
+               placeholder="Search users..."
+               oninput="navSearchUsers()">
+
+        <a href="/profile.html">Profile</a>
+        <span id="notifBell" onclick="toggleNotif()">🔔</span>
+        <span id="notifBadge"
+              style="display:none;background:red;color:white;padding:2px 6px;border-radius:10px;font-size:12px;"></span>
+
+        <button onclick="logout()">Logout</button>
+    </div>
+</div>
+
+<div id="navSearchResults"
+style="
+position:fixed;
+top:55px;
+right:260px;
+background:white;
+color:black;
+width:260px;
+max-height:300px;
+overflow-y:auto;
+display:none;
+border:1px solid #ddd;
+border-radius:10px;
+box-shadow:0 6px 20px rgba(0,0,0,0.15);
+z-index:9999;
+"></div>
+
+<div id="notifDropdown" class="notif-dropdown"></div>
+
+
+<div class="profile-container">
+    <h2>👤 Profile</h2>
+    <!-- PROFILE HEADER (BIG AVATAR) -->
+<div class="card" style="text-align:center">
+    <img id="profileAvatar"
+         style="width:120px;height:120px;border-radius:50%;object-fit:cover">
+
+    <h2 id="profileName"></h2>
+    <p id="profileBio"></p>
+
+    <div id="connectSection"></div>
+</div>
+
+<!-- SEARCH USERS -->
+<div class="card">
+    <h3>🔎 Search Users</h3>
+    <input id="searchInput"
+       placeholder="Search by name or bio..."
+       style="width:100%"
+       oninput="searchUsers()">
+    <div id="searchResults"></div>
+</div>
+
+<!-- CREATE POST -->
+<div class="card" id="profilePostBox">
+    <h3>Create Post</h3>
+    <textarea id="profilePostInput" style="width:100%" placeholder="Share something..."></textarea>
+    <br><br>
+    <button onclick="createProfilePost()">Post</button>
+</div>
+
+<!-- PROFILE EDIT -->
+<div class="card" id="editorCard">
+    <label>Name:</label><br>
+    <input id="nameInput" style="width:100%"><br><br>
+
+    <label>Profile Photo:</label><br>
+    <input type="file" id="avatarFile" accept="image/*"><br><br>
+
+    <label>Bio:</label><br>
+    <textarea id="bioInput" style="width:100%"></textarea><br><br>
+
+    <button onclick="saveProfile()">Save Profile</button>
+</div>
+
+<hr>
+
+<h3>🤝 Connections</h3>
+<div id="connectionCount"></div>
+<div id="pendingBox"></div>
+<hr>
+<div id="connectionsBox"></div>
+
+<hr>
+
+<h3>📝 Posts</h3>
+<div id="myPosts"></div>
+
+<div class="page-container">
+
+
+
+    <!-- LEFT COLUMN -->
+    
+
+</div>
+ <!-- page-container end -->
+
+<script>
+
+let uid = null;
+let username = null;
+
+window.addEventListener("DOMContentLoaded", checkAuth);
+
+async function checkAuth(){
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if(!data.user){
+        window.location.href="/";
+        return;
+    }
+
+    uid = data.user;
+
+    // username fetch karo DB se
+    const userRes = await fetch("/api/user/" + uid);
+    const userData = await userRes.json();
+    username = userData.name;
+
+    startProfile();
+    loadUnreadCount();
+    setInterval(loadUnreadCount,3000);
+}
+
+
+function startProfile(){
+
+    // decide which profile to open AFTER uid ready
+    const params = new URLSearchParams(window.location.search);
+    const viewUid = params.get("uid");
+
+    window.isOwnProfile = !viewUid || viewUid === uid;
+    window.profileUid = viewUid ? viewUid : uid;
+
+    syncUser();
+    loadProfile();
+    loadMyPosts();
+    loadConnections();
+    loadPending();
+    loadConnectionCount();
+
+    if (!window.isOwnProfile) {
+        document.getElementById("editorCard").style.display = "none";
+        document.getElementById("profilePostBox").style.display = "none";
+        loadConnectionState();
+    }
+}
+
+/* ================= TIME FORMAT ================= */
+
+function formatTime(ts) {
+    if (!ts) return "";
+    const past = new Date(ts + "Z");
+    const now = new Date();
+    const diff = Math.floor((now - past) / 1000);
+
+    if (diff < 60) return "Just now";
+    if (diff < 3600) return Math.floor(diff/60) + " min ago";
+    if (diff < 86400) return Math.floor(diff/3600) + " hr ago";
+    return Math.floor(diff/86400) + " days ago";
+}
+
+/* ================= CREATE POST ================= */
+
+async function createProfilePost() {
+    const content = document.getElementById("profilePostInput").value;
+    if (!content) return;
+
+    const formData = new FormData();
+    formData.append("uid", uid);
+    formData.append("content", content);
+
+    const res = await fetch("/api/posts", { method: "POST", body: formData });
+    const data = await res.json();
+
+    if (data.status === "posted") {
+        document.getElementById("profilePostInput").value = "";
+        loadMyPosts();
+    }
+}
+
+/* ================= SYNC USER ================= */
+
+async function syncUser() {
+    await fetch("/api/sync-user", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid: uid, name: username })
+    });
+}
+
+/* ================= PROFILE ================= */
+
+async function loadProfile() {
+    const res = await fetch("/api/user/" + window.profileUid);
+    const data = await res.json();
+
+    // form fields (always exist)
+    const nameInput = document.getElementById("nameInput");
+    const bioInput = document.getElementById("bioInput");
+
+    if (nameInput) nameInput.value = data.name || "";
+    if (bioInput) bioInput.value = data.bio || "";
+
+    // optional elements (may or may not exist)
+    const avatar = document.getElementById("profileAvatar");
+    const profileName = document.getElementById("profileName");
+    const profileBio = document.getElementById("profileBio");
+
+    if (avatar) avatar.src = data.avatar || "";
+    if (profileName) profileName.innerText = data.name || "";
+    if (profileBio) profileBio.innerText = data.bio || "";
+}
+
+async function saveProfile() {
+    const name = document.getElementById("nameInput").value;
+    const bio = document.getElementById("bioInput").value;
+
+    const formData = new FormData();
+    formData.append("uid", uid);
+    formData.append("name", name);
+    formData.append("bio", bio);
+
+    const avatarFile = document.getElementById("avatarFile").files[0];
+    if (avatarFile) {
+        formData.append("avatar", avatarFile);
+    }
+
+    await fetch("/api/user/update", {
+        method: "POST",
+        body: formData
+    });
+
+    alert("Profile updated!");
+    loadProfile();   // reload avatar preview
+}
+
+/* ================= CONNECTION STATE ================= */
+
+/* ================= CONNECTIONS ================= */
+
+async function loadConnectionState() {
+    const box = document.getElementById("connectSection");
+
+    // Check accepted connections
+    const resConn = await fetch("/api/connections/" + uid);
+    const connections = await resConn.json();
+
+    if (connections.some(u => u.uid === window.profileUid)) {
+        box.innerHTML = `
+            <b>Connected</b>
+            <button onclick="openChat()">Message</button>
+            <button class="secondary-btn" onclick="removeConnection()">Remove</button>
+        `;
+        return;
+    }
+
+    // Incoming pending
+    const resPending = await fetch("/api/connections/pending/" + uid);
+    const pending = await resPending.json();
+
+    if (pending.find(u => u.uid === window.profileUid)) {
+        box.innerHTML = `
+            <button onclick="acceptRequest('${window.profileUid}')">Accept</button>
+            <button class="secondary-btn" onclick="rejectRequest('${window.profileUid}')">Reject</button>
+        `;
+        return;
+    }
+
+    // Outgoing pending
+    const resTheirPending = await fetch("/api/connections/pending/" + window.profileUid);
+    const theirPending = await resTheirPending.json();
+
+    if (theirPending.find(u => u.uid === uid)) {
+        box.innerHTML = `
+            <b>Request Sent</b>
+            <button class="secondary-btn" onclick="cancelRequest()">Cancel</button>
+        `;
+        return;
+    }
+
+    // Default state
+    box.innerHTML = `<button class="secondary-btn" onclick="sendConnect()">Connect</button>`;
+}
+
+async function loadConnectionCount() {
+    const res = await fetch("/api/connections/count/" + window.profileUid);
+    const data = await res.json();
+
+    document.getElementById("connectionCount").innerHTML =
+        `<b>Total Connections:</b> ${data.count}`;
+}
+async function searchUsers() {
+    const query = document.getElementById("searchInput").value;
+
+    const resultsBox = document.getElementById("searchResults");
+
+    if (!query) {
+        resultsBox.innerHTML = "";
+        return;
+    }
+
+    const res = await fetch(`/api/users/search/${query}/${uid}`);
+    const users = await res.json();
+
+    resultsBox.innerHTML = "";
+
+    users.forEach(u => {
+        resultsBox.innerHTML += `
+            <div style="padding:5px 0;">
+                <a href="profile.html?uid=${u.uid}">
+                    <b>${u.name}</b>
+                </a>
+                <br>
+                <small>${u.bio}</small>
+            </div>
+            <hr>
+        `;
+    });
+}
+
+
+
+async function rejectRequest(sender) {
+    await fetch("/api/connections/reject", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ sender, receiver: uid })
+    });
+
+    loadConnectionState();
+    loadPending();
+    loadUnreadCount();
+}
+
+async function cancelRequest() {
+    await fetch("/api/connections/cancel", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ sender: uid, receiver: window.profileUid })
+    });
+
+    loadConnectionState();
+    loadUnreadCount();
+}
+
+async function removeConnection() {
+    await fetch("/api/connections/remove", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid1: uid, uid2: window.profileUid })
+    });
+
+    loadConnectionState();
+    loadConnections();
+    loadConnectionCount();
+}
+
+async function loadPending() {
+    const res = await fetch("/api/connections/pending/" + uid);
+    const users = await res.json();
+    const box = document.getElementById("pendingBox");
+    box.innerHTML = "<b>Pending Requests:</b><br>";
+    users.forEach(u => {
+       box.innerHTML += `
+        ${u.name}
+        <button onclick="acceptRequest('${u.uid}')">Accept</button>
+        <button class="secondary-btn" onclick="rejectRequest('${u.uid}')">Reject</button>
+        <br>`;
+    });
+}
+
+async function loadConnections() {
+    const res = await fetch("/api/connections/" + window.profileUid);
+    const users = await res.json();
+
+    const box = document.getElementById("connectionsBox");
+    if(window.isOwnProfile){
+    box.innerHTML = "<b>My Connections:</b><br>";
+    }else{
+        box.innerHTML = "<b>Connections:</b><br>";
+    }
+
+    users.forEach(u => {
+        box.innerHTML += `<a href="profile.html?uid=${u.uid}">${u.name}</a><br>`;
+    });
+}
+
+async function sendConnect() {
+    await fetch("/api/connections/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ sender: uid, receiver: window.profileUid })
+    });
+    loadConnectionState();
+}
+
+async function acceptRequest(sender) {
+    await fetch("/api/connections/accept", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ sender, receiver: uid })
+    });
+
+    loadConnectionState();
+    loadConnections();
+    loadConnectionCount();
+    loadUnreadCount(); // ⭐ add this
+}
+
+/* ================= POSTS ================= */
+
+async function loadMyPosts() {
+    const res = await fetch("/api/posts?uid="+window.profileUid);
+    const posts = await res.json();
+    const box = document.getElementById("myPosts");
+    box.innerHTML = "";
+
+    posts.filter(p => p.uid === window.profileUid).forEach(post => {
+        const div = document.createElement("div");
+        div.className = "post";
+
+        div.innerHTML = `
+            <b>${post.author}</b>
+            <small> • ${formatTime(post.timestamp)}</small>
+            <br>
+
+            <div id="content-${post.id}">${post.content}</div>
+
+            ${post.image_url ? `
+            <img src="${post.image_url}"
+            style="width:100%;margin-top:10px;border-radius:10px;">
+            ` : ""}
+
+            <div id="editArea-${post.id}" style="display:none;">
+                <textarea id="editInput-${post.id}" style="width:100%">${post.content}</textarea>
+                <button onclick="savePost(${post.id})">Save</button>
+                <button onclick="cancelEdit(${post.id})">Cancel</button>
+            </div>
+
+            <br>
+
+            ❤️ <span id="like-${post.id}">${post.likes}</span>
+            <button onclick="toggleLike(${post.id})">Like</button>
+
+            ${post.uid === uid ? `
+                <button onclick="enableEdit(${post.id})">Edit</button>
+                <button onclick="deletePost(${post.id})">Delete</button>
+            ` : ""}
+
+            <br><br>
+
+            <div id="comments-${post.id}"></div>
+
+            <input id="commentInput-${post.id}" placeholder="Write comment">
+            <button onclick="addComment(${post.id})">Comment</button>
+        `;
+
+        box.appendChild(div);
+        loadComments(post.id);
+    });
+}
+
+/* ================= COMMENTS ================= */
+
+async function loadComments(pid) {
+    const res = await fetch("/api/comments/" + pid);
+    const comments = await res.json();
+    const box = document.getElementById("comments-" + pid);
+    box.innerHTML = "";
+
+    comments.forEach(c => {
+        const div = document.createElement("div");
+        div.className = "comment";
+
+        div.innerHTML = `
+            <div id="commentText-${c.id}">
+                <b>${c.author}</b>
+                <small> • ${formatTime(c.timestamp)}</small>
+                : ${c.text}
+            </div>
+
+            <div id="commentEdit-${c.id}" style="display:none;">
+                <textarea id="commentInputEdit-${c.id}" style="width:90%">${c.text}</textarea>
+                <button onclick="saveComment(${c.id}, ${pid})">Save</button>
+                <button onclick="cancelCommentEdit(${c.id})">Cancel</button>
+            </div>
+
+            ${c.uid === uid ? `
+                <button onclick="enableCommentEdit(${c.id})">Edit</button>
+                <button onclick="deleteComment(${c.id}, ${pid})">Delete</button>
+            ` : ""}
+        `;
+
+        box.appendChild(div);
+    });
+}
+
+/* ================= EDIT / DELETE ================= */
+
+function enableEdit(pid) {
+    document.getElementById("content-" + pid).style.display = "none";
+    document.getElementById("editArea-" + pid).style.display = "block";
+}
+
+function cancelEdit(pid) {
+    document.getElementById("content-" + pid).style.display = "block";
+    document.getElementById("editArea-" + pid).style.display = "none";
+}
+
+async function savePost(pid) {
+    const content = document.getElementById("editInput-" + pid).value;
+    await fetch("/api/posts/" + pid, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid, content })
+    });
+    document.getElementById("content-" + pid).innerText = content;
+    cancelEdit(pid);
+}
+
+async function deletePost(pid) {
+    if (!confirm("Delete this post?")) return;
+    await fetch("/api/posts/" + pid, {
+        method: "DELETE",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid })
+    });
+    loadMyPosts();
+}
+
+function enableCommentEdit(cid) {
+    document.getElementById("commentText-" + cid).style.display = "none";
+    document.getElementById("commentEdit-" + cid).style.display = "block";
+}
+
+function cancelCommentEdit(cid) {
+    document.getElementById("commentText-" + cid).style.display = "block";
+    document.getElementById("commentEdit-" + cid).style.display = "none";
+}
+
+async function saveComment(cid, pid) {
+    const text = document.getElementById("commentInputEdit-" + cid).value;
+    await fetch("/api/comments/" + cid, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid, text })
+    });
+    loadComments(pid);
+}
+
+async function deleteComment(cid, pid) {
+    if (!confirm("Delete this comment?")) return;
+    await fetch("/api/comments/" + cid, {
+        method: "DELETE",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid })
+    });
+    loadComments(pid);
+}
+
+async function toggleLike(pid) {
+    const res = await fetch("/api/posts/like/" + pid, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid })
+    });
+    const data = await res.json();
+    document.getElementById("like-" + pid).innerText = data.likes;
+}
+
+async function addComment(pid) {
+    const input = document.getElementById("commentInput-" + pid);
+    const text = input.value;
+    if (!text) return;
+
+    await fetch("/api/comments/" + pid, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ uid, text })
+    });
+
+    input.value = "";
+    loadComments(pid);
+}
+function openChat() {
+    window.location.href = "messages.html?uid=" + window.profileUid;
+}
+// ================= NAVBAR FUNCTIONS =================
+
+async function logout(){
+    await fetch("/api/auth/logout");
+    window.location.href = "/";
+}
+
+async function toggleNotif(){
+
+    const box = document.getElementById("notifDropdown");
+
+    if(box.style.display === "block"){
+        box.style.display = "none";
+        return;
+    }
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    box.innerHTML = "<b>Notifications</b><hr>";
+
+    if(data.length === 0){
+        box.innerHTML += "No notifications";
+    }
+
+    data.forEach(n=>{
+
+        const unreadClass = !n.is_read ? "unread-notif" : "";
+
+        let text = "";
+
+        if(n.type==="like") text="liked your post ❤️";
+        if(n.type==="comment") text="commented on your post 💬";
+        if(n.type==="repost") text="reposted your post 🔁";
+        if(n.type==="connect_request") text="sent you a connection request 🤝";
+        if(n.type==="connect_accept") text="accepted your connection 🎉";
+
+        box.innerHTML += `
+        <div class="notif-item ${unreadClass}">
+            <b>${n.sender}</b> ${text}
+        </div>
+        `;
+    });
+
+    box.style.display="block";
+
+    await fetch("/api/notifications/read/" + uid, {method:"POST"});
+    loadUnreadCount();
+}
+
+async function loadUnreadCount(){
+
+    const badge = document.getElementById("notifBadge");
+    if(!badge) return;
+
+    const res = await fetch("/api/notifications/" + uid);
+    const data = await res.json();
+
+    const unread = data.filter(n=>!n.is_read).length;
+
+    if(unread>0){
+        badge.style.display="inline-block";
+        badge.innerText=unread;
+    }else{
+        badge.style.display="none";
+    }
+}
+
+// ================= GLOBAL NAV SEARCH =================
+async function navSearchUsers(){
+    const query = document.getElementById("navSearch").value;
+    const box = document.getElementById("navSearchResults");
+
+    if(!query){
+        box.style.display="none";
+        return;
+    }
+
+    // session uid fetch
+    const resUser = await fetch("/api/auth/me");
+    const userData = await resUser.json();
+    const uid = userData.user;
+
+    const res = await fetch(`/api/users/search/${query}/${uid}`);
+    const users = await res.json();
+
+    box.innerHTML="";
+    box.style.display="block";
+
+    users.forEach(u=>{
+        box.innerHTML += `
+            <div style="padding:6px; cursor:pointer;"
+                 onclick="openProfile('${u.uid}')">
+                <b>${u.name}</b><br>
+                <small>${u.bio}</small>
+            </div>
+            <hr>
+        `;
+    });
+}
+
+function openProfile(uid){
+
+    const box=document.getElementById("navSearchResults");
+    if(box) box.style.display="none";
+
+    window.location.href="/profile.html?uid="+uid;
+}
+
+// click outside → close dropdown
+document.addEventListener("click", function(e){
+    if(!e.target.closest("#navSearch")){
+        const box=document.getElementById("navSearchResults");
+        if(box) box.style.display="none";
+    }
+});
+
+</script>
+
+</body>
+</html>

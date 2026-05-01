@@ -1,0 +1,22 @@
+{
+  "bhopal": {
+    "bbox": [77.30, 23.10, 77.55, 23.35],
+    "2019_built_percent": 32,
+    "2024_built_percent": 41
+  },
+  "delhi": {
+    "bbox": [76.85, 28.40, 77.35, 28.90],
+    "2019_built_percent": 52,
+    "2024_built_percent": 63
+  },
+  "mumbai": {
+    "bbox": [72.70, 18.80, 73.05, 19.30],
+    "2019_built_percent": 60,
+    "2024_built_percent": 70
+  },
+  "london": {
+    "bbox": [-0.50, 51.30, 0.30, 51.70],
+    "2019_built_percent": 45,
+    "2024_built_percent": 53
+  }
+}

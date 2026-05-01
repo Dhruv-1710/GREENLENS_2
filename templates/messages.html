@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Messages</title>
+<meta charset="UTF-8">
+<link rel="icon" href="/static/favicon.ico">
+
+<style>
+body{
+    font-family: system-ui, Arial;
+    margin:0;
+    background:linear-gradient(#ecfdf5,#f0fdf4);
+}
+
+/* NAVBAR */
+.navbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 24px;
+    background: linear-gradient(90deg,#065f46,#10b981);
+    color:white;
+    position:sticky;
+    top:0;
+    box-shadow:0 2px 10px rgba(0,0,0,0.15);
+}
+
+.nav-links a{
+    margin-right:15px;
+    color:white;
+    text-decoration:none;
+}
+
+/* CHAT AREA */
+.chat-box{
+    height:75vh;
+    overflow:auto;
+    padding:20px;
+    max-width:800px;
+    margin:auto;
+}
+
+/* MESSAGE BUBBLES */
+.msg{
+    margin:8px 0;
+    padding:10px 14px;
+    border-radius:12px;
+    max-width:60%;
+    box-shadow:0 2px 6px rgba(0,0,0,0.1);
+}
+
+.me{ background:#10b981; color:white; margin-left:auto; }
+.them{ background:white; }
+
+/* INPUT BAR */
+.input-bar{
+    display:flex;
+    gap:10px;
+    padding:15px;
+    background:white;
+    max-width:800px;
+    margin:auto;
+    border-radius:12px;
+    box-shadow:0 4px 15px rgba(0,0,0,0.08);
+}
+
+input{
+    flex:1;
+    padding:12px;
+    border-radius:8px;
+    border:1px solid #ddd;
+}
+
+input:focus{
+    outline:none;
+    border-color:#10b981;
+}
+
+button{
+    padding:12px 18px;
+    background:#10b981;
+    border:none;
+    border-radius:8px;
+    color:white;
+    cursor:pointer;
+}
+/* NAVBAR */
+.navbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:10px 20px;
+    background:#111;
+    color:white;
+    position:sticky;
+    top:0;
+}
+
+.nav-links a{
+    margin-right:15px;
+    color:white;
+    text-decoration:none;
+}
+
+.nav-links button{
+    background:#10b981;
+    border:none;
+    padding:6px 10px;
+    cursor:pointer;
+}
+
+.notif-dropdown{
+    position:absolute;
+    right:20px;
+    top:50px;
+    background:white;
+    color:black;
+    width:250px;
+    display:none;
+    border:1px solid #ccc;
+    padding:10px;
+}
+</style>
+</head>
+
+<body>
+<!-- ================= NAVBAR ================= -->
+<div class="navbar">
+    <div class="nav-left">
+        <b>🌱 GreenLens</b>
+    </div>
+
+    <div class="nav-links">
+    <a href="/community">Feed</a>
+    <a href="/inbox.html">Messages</a>
+
+    <!-- 🔍 GLOBAL SEARCH -->
+    <input id="navSearch"
+           placeholder="Search users..."
+           oninput="navSearchUsers()"
+           style="padding:5px;">
+
+    <a href="/profile.html">Profile</a>
+    <span id="notifBell" onclick="toggleNotif()">🔔</span>
+    <button onclick="logout()">Logout</button>
+    </div>
+</div>
+
+<div id="notifDropdown" class="notif-dropdown"></div>
+<div class="chat-box" id="chat"></div>
+
+<div class="input-bar">
+    <input id="msg" placeholder="Message…">
+    <button onclick="send()">Send</button>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const otherUID = params.get("uid");
+
+let myUID = null;
+
+document.addEventListener("DOMContentLoaded", init);
+
+async function init(){
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+
+    if(!data.user){
+        window.location.href="/";
+        return;
+    }
+
+    myUID = data.user;
+
+    if(!otherUID){
+        document.body.innerHTML="<h2 style='padding:20px'>Invalid chat</h2>";
+        return;
+    }
+
+    load();
+    setInterval(load,2000);
+
+    document.getElementById("msg").addEventListener("keypress", e=>{
+        if(e.key==="Enter") send();
+    });
+}
+
+async function load(){
+    const res = await fetch(`/api/messages/${myUID}/${otherUID}`);
+    const data = await res.json();
+
+    const box = document.getElementById("chat");
+    if(!box) return; // safety
+
+    box.innerHTML="";
+
+    data.forEach(m=>{
+        const div=document.createElement("div");
+        div.className="msg "+(m.sender===myUID?"me":"them");
+        div.textContent=m.text;
+        box.appendChild(div);
+    });
+
+    box.scrollTop = box.scrollHeight;
+}
+
+async function send(){
+    const input = document.getElementById("msg");
+    const text = input.value.trim();
+    if(!text) return;
+
+    await fetch("/api/messages/send",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            sender:myUID,
+            receiver:otherUID,
+            text:text
+        })
+    });
+
+    input.value="";
+    load();
+}
+
+async function logout(){
+    await fetch("/api/auth/logout");
+    window.location.href="/";
+}
+
+async function toggleNotif(){
+    const box = document.getElementById("notifDropdown");
+    if(!box) return;
+
+    if(box.style.display==="block"){
+        box.style.display="none";
+        return;
+    }
+
+    const res = await fetch("/api/notifications/" + myUID);
+    const data = await res.json();
+
+    box.innerHTML="<b>Notifications</b><hr>";
+    data.forEach(n=>{
+        box.innerHTML+=`<div>${n.sender} ${n.type}</div><hr>`;
+    });
+
+    box.style.display="block";
+}
+
+// ================= GLOBAL NAV SEARCH =================
+async function navSearchUsers(){
+    const query = document.getElementById("navSearch").value;
+    const box = document.getElementById("navSearchResults");
+
+    if(!query){
+        box.style.display="none";
+        return;
+    }
+
+    // session uid fetch
+    const resUser = await fetch("/api/auth/me");
+    const userData = await resUser.json();
+    const uid = userData.user;
+
+    const res = await fetch(`/api/users/search/${query}/${uid}`);
+    const users = await res.json();
+
+    box.innerHTML="";
+    box.style.display="block";
+
+    users.forEach(u=>{
+        box.innerHTML += `
+            <div style="padding:6px; cursor:pointer;"
+                 onclick="openProfile('${u.uid}')">
+                <b>${u.name}</b><br>
+                <small>${u.bio}</small>
+            </div>
+            <hr>
+        `;
+    });
+}
+
+function openProfile(uid){
+    window.location.href="/profile.html?uid="+uid;
+}
+
+// click outside → close dropdown
+document.addEventListener("click", function(e){
+    if(!e.target.closest("#navSearch")){
+        const box=document.getElementById("navSearchResults");
+        if(box) box.style.display="none";
+    }
+});
+
+</script>
+
+</body>
+</html>
