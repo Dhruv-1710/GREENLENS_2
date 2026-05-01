@@ -6,11 +6,22 @@
 
 ## 🚀 Live Demo
 
-> Deployed on Render — [greenlens.onrender.com](https://social-dev-final-version-github-deploy.onrender.com) 
+**[https://social-dev-final-version-github-deploy.onrender.com](https://social-dev-final-version-github-deploy.onrender.com)**
 
 ---
 
+## 📸 Screenshots
 
+### 🛰️ Satellite Dashboard — OSM Layer Analysis
+![Dashboard](docs/dashboard.png)
+
+### 🌳 AI Plantation Report — Species & Environmental Analysis
+![Plantation Report](docs/plantation.png)
+
+### 🤝 Community Feed — Eco Social Network
+![Community](docs/community.png)
+
+---
 
 ## ✨ Features
 
@@ -69,7 +80,7 @@
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/greenlens.git
+git clone https://github.com/Dhruv-1710/greenlens.git
 cd greenlens
 ```
 
@@ -113,6 +124,7 @@ greenlens/
 ├── urban_cache.json        # Pre-cached urban expansion data
 ├── requirements.txt
 ├── .env.example            # Environment variable template
+├── docs/                   # Screenshots for README
 ├── templates/
 │   ├── landing.html        # Landing page
 │   ├── dashboard.html      # Satellite analysis dashboard
@@ -161,10 +173,10 @@ greenlens/
 
 ## 👤 Author
 
-**Your Name**
-- GitHub: https://github.com/Dhruv-1710
-- LinkedIn: https://www.linkedin.com/in/dhruv-yadav-95b1302ba/
-- Email: dhruvyn3@email.com
+**Dhruv Yadav**
+- GitHub: [github.com/Dhruv-1710](https://github.com/Dhruv-1710)
+- LinkedIn: [linkedin.com/in/dhruv-yadav-95b1302ba](https://www.linkedin.com/in/dhruv-yadav-95b1302ba/)
+- Email: dhruvyn3@gmail.com
 
 ---
 
