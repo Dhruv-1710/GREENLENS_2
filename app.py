@@ -301,9 +301,15 @@ app = Flask(__name__)
 CORS(app)
 
 try:
-    ee.Initialize(project=os.environ.get("GEE_PROJECT", ""))
+    _ee_key = os.environ.get("GEE_KEY_FILE", "/etc/secrets/.ee_credentials.json")
+    credentials = ee.ServiceAccountCredentials(
+        email=os.environ.get("GEE_EMAIL", "greenlens-render@plant-project-475614.iam.gserviceaccount.com"),
+        key_file=_ee_key
+    )
+    ee.Initialize(credentials=credentials, project=os.environ.get("GEE_PROJECT", ""))
+    print("✅ Earth Engine initialized successfully")
 except Exception as e:
-    print("Earth Engine init error:", e)
+    print(f"⚠ Earth Engine not available (satellite features disabled): {type(e).__name__}")
     
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32))
 
@@ -362,25 +368,60 @@ def validate_email(email):
 def search_city():
     q = request.args.get("q")
 
-    url = f"http://api.openweathermap.org/geo/1.0/direct?q={q}&limit=1&appid={WEATHER_KEY}"
-    res = requests.get(url).json()
+    # 1️⃣ Try OpenWeather first (works on Render with API key)
+    if WEATHER_KEY:
+        try:
+            url = f"http://api.openweathermap.org/geo/1.0/direct?q={q}&limit=1&appid={WEATHER_KEY}"
+            res = requests.get(url, timeout=6).json()
+            if res and isinstance(res, list) and len(res) > 0:
+                city = res[0]
+                return jsonify({
+                    "lat": city["lat"],
+                    "lon": city["lon"],
+                    "name": city["name"],
+                    "country": city["country"]
+                })
+        except Exception as e:
+            print("OpenWeather search error:", e)
 
-    if not res:
-        return jsonify({"error":"City not found"})
+    # 2️⃣ Fallback: Nominatim (free, no API key needed)
+    try:
+        nom_url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1"
+        nom_res = requests.get(nom_url, headers={"User-Agent": "GreenLens/1.0"}, timeout=6).json()
+        if nom_res and len(nom_res) > 0:
+            place = nom_res[0]
+            return jsonify({
+                "lat": float(place["lat"]),
+                "lon": float(place["lon"]),
+                "name": place.get("display_name", q).split(",")[0],
+                "country": place.get("display_name", "").split(",")[-1].strip()
+            })
+    except Exception as e:
+        print("Nominatim search error:", e)
 
-    city = res[0]
-
-    return jsonify({
-        "lat": city["lat"],
-        "lon": city["lon"],
-        "name": city["name"],
-        "country": city["country"]
-    })
+    return jsonify({"error": "City not found"})
 
 
 # 🌆 URBAN EXPANSION CACHE LOAD
-with open("urban_cache.json") as f:
-    URBAN_CACHE = json.load(f)
+try:
+    _cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "urban_cache.json")
+    with open(_cache_path) as f:
+        URBAN_CACHE = json.load(f)
+except FileNotFoundError:
+    # Fallback hardcoded cache so app starts even without the file
+    URBAN_CACHE = {
+        "bhopal":   {"bbox": [77.30, 23.10, 77.55, 23.35], "2019_built_percent": 32, "2024_built_percent": 41},
+        "delhi":    {"bbox": [76.85, 28.40, 77.35, 28.90], "2019_built_percent": 52, "2024_built_percent": 63},
+        "mumbai":   {"bbox": [72.70, 18.80, 73.05, 19.30], "2019_built_percent": 60, "2024_built_percent": 70},
+        "london":   {"bbox": [-0.50, 51.30, 0.30, 51.70],  "2019_built_percent": 45, "2024_built_percent": 53},
+        "nyc":      {"bbox": [-74.3, 40.45, -73.7, 40.95], "2019_built_percent": 58, "2024_built_percent": 65},
+        "tokyo":    {"bbox": [139.4, 35.50, 139.9, 35.85], "2019_built_percent": 62, "2024_built_percent": 70},
+        "paris":    {"bbox": [2.10,  48.75, 2.55,  48.95], "2019_built_percent": 55, "2024_built_percent": 62},
+        "beijing":  {"bbox": [116.0, 39.70, 116.8, 40.15], "2019_built_percent": 50, "2024_built_percent": 60},
+        "sydney":   {"bbox": [150.8, -34.1, 151.4, -33.6], "2019_built_percent": 38, "2024_built_percent": 46},
+        "dubai":    {"bbox": [55.00, 25.00, 55.50, 25.40], "2019_built_percent": 48, "2024_built_percent": 58},
+    }
+    print("⚠ urban_cache.json not found — using built-in fallback data")
 
 def bbox_center(b):
     return [(b[0]+b[2])/2, (b[1]+b[3])/2]
@@ -405,10 +446,13 @@ def get_climate(lat, lon):
             "&timezone=auto"
         )
 
-        res = requests.get(url, timeout=10).json()
+        res = requests.get(url, timeout=10)
+        if not res.ok:
+            raise Exception(f"Climate API returned {res.status_code}")
+        data = res.json()
 
-        temps = res["daily"]["temperature_2m_mean"]
-        rain  = res["daily"]["precipitation_sum"]
+        temps = data["daily"]["temperature_2m_mean"]
+        rain  = data["daily"]["precipitation_sum"]
 
         # yearly averages
         avg_temp = round(sum(temps) / len(temps), 1)
@@ -438,10 +482,20 @@ def city_stats(name, lat, lon):
 
     aqi = get_real_aqi(lat, lon) or 80  # AQI also cached now
 
-    w_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-    w = requests.get(w_url).json()
+    temp = None
+    humidity = None
+    try:
+        w_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
+        w = requests.get(w_url, timeout=6).json()
+        temp = w["main"]["temp"]
+        humidity = w["main"]["humidity"]
+    except:
+        pass
 
-    layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    try:
+        layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    except:
+        layers = {"buildings":[],"green":[],"water":[],"industry":[],"roads":[]}
 
     rooftop_heat = generate_rooftop_heat(
         layers["buildings"],
@@ -463,8 +517,8 @@ def city_stats(name, lat, lon):
         "lat": lat,
         "lon": lon,
         "aqi": aqi,
-        "temp": w["main"]["temp"],
-        "humidity": w["main"]["humidity"],
+        "temp": temp,
+        "humidity": humidity,
         "green_score": green_score
     }
     set_cache(cs_key, city_result, 900)
@@ -606,7 +660,7 @@ def get_osm_features_bbox(n, s, e, w):
     /* BUILDINGS */
     way["building"]({s},{w},{n},{e});
     );
-    out geom;
+    out geom qt 8000;
     """
 
     # ⚡ Multiple Overpass endpoints — rotate on failure (rate limit fix)
@@ -636,7 +690,7 @@ def get_osm_features_bbox(n, s, e, w):
                 endpoint,
                 data={"data": query},
                 headers=OVERPASS_HEADERS,
-                timeout=28
+                timeout=8  # ✅ FIX 1: was 28 — total max ~30s fits in gunicorn window
             )
             ct = raw.headers.get("content-type", "")
             text = raw.text.strip()
@@ -664,11 +718,11 @@ def get_osm_features_bbox(n, s, e, w):
             else:
                 print(f"⚠ Overpass {endpoint}: status={raw.status_code}, ct={ct}, retrying...")
 
-            time.sleep(2)
+            time.sleep(1)  # ✅ FIX 1: was 2
 
         except Exception as ep_err:
             print(f"⚠ Overpass endpoint failed ({endpoint}): {ep_err}, trying next...")
-            time.sleep(2)
+            time.sleep(1)  # ✅ FIX 1: was 2
 
     if res_json is None:
         print("❌ All Overpass endpoints failed — returning empty layers")
@@ -677,7 +731,8 @@ def get_osm_features_bbox(n, s, e, w):
     try:
         res = res_json
 
-        for el in res.get("elements", []):
+        elements = res.get("elements", [])[:6000]
+        for el in elements:
 
             # skip if geometry missing
             if "geometry" not in el:
@@ -720,9 +775,10 @@ def get_osm_features_bbox(n, s, e, w):
             ):
                 layers["industry"].append(coords)
 
-            # Buildings → polygons
+            # Buildings → polygons (cap at 2000 to prevent OOM)
             elif "building" in tags:
-                layers["buildings"].append(coords)
+                if len(layers["buildings"]) < 2000:
+                    layers["buildings"].append(coords)
 
     except Exception as e:
         print("OSM PARSE ERROR:", e)
@@ -2099,46 +2155,51 @@ def satellite(year):
     start = f"{year}-01-01"
     end = f"{year}-12-31"
 
-    # 🛰 OLD YEARS → LANDSAT 7 + 8 COMBINE
-    if year <= 2017:
+    try:
+        # 🛰 OLD YEARS → LANDSAT 7 + 8 COMBINE
+        if year <= 2017:
 
-        l7 = (
-            ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
-            .filterDate(start, end)
-            .map(lambda img: img.select(
-                ["SR_B3","SR_B2","SR_B1"],   # RGB for L7
-                ["SR_B4","SR_B3","SR_B2"]
-            ))
-        )
+            l7 = (
+                ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+                .filterDate(start, end)
+                .map(lambda img: img.select(
+                    ["SR_B3","SR_B2","SR_B1"],   # RGB for L7
+                    ["SR_B4","SR_B3","SR_B2"]
+                ))
+            )
 
-        l8 = (
-            ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
-            .filterDate(start, end)
-            .map(lambda img: img.select(
-                ["SR_B4","SR_B3","SR_B2"]
-            ))
-        )
+            l8 = (
+                ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+                .filterDate(start, end)
+                .map(lambda img: img.select(
+                    ["SR_B4","SR_B3","SR_B2"]
+                ))
+            )
 
-        image = l7.merge(l8).median()
+            image = l7.merge(l8).median()
 
-    # 🛰 NEW YEARS → LANDSAT 8 ONLY
-    else:
-        image = (
-            ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
-            .filterDate(start, end)
-            .median()
-        )
+        # 🛰 NEW YEARS → LANDSAT 8 ONLY
+        else:
+            image = (
+                ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+                .filterDate(start, end)
+                .median()
+            )
 
-    vis = {
-        "bands": ["SR_B4","SR_B3","SR_B2"],
-        "min": 0,
-        "max": 30000
-    }
+        vis = {
+            "bands": ["SR_B4","SR_B3","SR_B2"],
+            "min": 0,
+            "max": 30000
+        }
 
-    map_id = image.getMapId(vis)
-    tile_url = map_id["tile_fetcher"].url_format
+        map_id = image.getMapId(vis)
+        tile_url = map_id["tile_fetcher"].url_format
 
-    return jsonify({"tile": tile_url})
+        return jsonify({"tile": tile_url})
+
+    except Exception as e:
+        print("GEE satellite error:", e)
+        return jsonify({"tile": None, "error": "Satellite imagery unavailable (Earth Engine not configured)"})
 
 
 # ---------------------------------------------------------
@@ -2201,15 +2262,17 @@ def city_aqi():
     aqi = get_real_aqi(lat, lon)
 
     # 🌡 Weather from OpenWeather
-    weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-    w = requests.get(weather_url).json()
-
-    return jsonify({
-        "aqi": aqi,
-        "temp": w["main"]["temp"],
-        "humidity": w["main"]["humidity"],
-        "wind": w["wind"]["speed"]
-    })
+    try:
+        weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
+        w = requests.get(weather_url, timeout=6).json()
+        return jsonify({
+            "aqi": aqi,
+            "temp": w["main"]["temp"],
+            "humidity": w["main"]["humidity"],
+            "wind": w["wind"]["speed"]
+        })
+    except:
+        return jsonify({"aqi": aqi, "temp": None, "humidity": None, "wind": None})
 
 # 🏘 GET CITY SUBURBS / COLONIES (OSM NOMINATIM)
 @app.route("/city_suburbs")
@@ -2220,21 +2283,16 @@ def city_suburbs():
 
     url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
 
-    data = requests.get(url, headers={"User-Agent":"GreenLens"}).json()
-
-    city = data["address"].get("city") or data["address"].get("town")
-
-    # 🔎 search suburbs of this city
-    search_url = f"https://nominatim.openstreetmap.org/search?city={city}&format=json&limit=12"
-
-    res = requests.get(search_url, headers={"User-Agent":"GreenLens"}).json()
-
-    suburbs = []
-    for place in res:
-        name = place["display_name"].split(",")[0]
-        suburbs.append(name)
-
-    return jsonify(suburbs[:10])
+    try:
+        data = requests.get(url, headers={"User-Agent":"GreenLens"}, timeout=6).json()
+        city = data["address"].get("city") or data["address"].get("town")
+        search_url = f"https://nominatim.openstreetmap.org/search?city={city}&format=json&limit=12"
+        res = requests.get(search_url, headers={"User-Agent":"GreenLens"}, timeout=6).json()
+        suburbs = [p["display_name"].split(",")[0] for p in res]
+        return jsonify(suburbs[:10])
+    except Exception as e:
+        print("city_suburbs error:", e)
+        return jsonify([])
 
 @app.route("/country_cities")
 def country_cities():
@@ -2245,14 +2303,21 @@ def country_cities():
     headers = {"User-Agent":"GreenLens"}
 
     # 🌍 Get country name
-    rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-    rev = requests.get(rev_url, headers=headers).json()
-
-    country = rev["address"]["country"]
+    try:
+        rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        rev = requests.get(rev_url, headers=headers, timeout=6).json()
+        country = rev["address"]["country"]
+    except Exception as e:
+        print("country_cities nominatim error:", e)
+        return jsonify([])
 
     # 🌆 Get top cities by population
-    geo_url = "http://geodb-free-service.wirefreethought.com/v1/geo/cities?limit=100&sort=-population"
-    res = requests.get(geo_url).json()
+    try:
+        geo_url = "http://geodb-free-service.wirefreethought.com/v1/geo/cities?limit=100&sort=-population"
+        res = requests.get(geo_url, timeout=8).json()
+    except Exception as e:
+        print("country_cities geodb error:", e)
+        return jsonify([])
 
     major = []   # ✅ single consistent variable
 
@@ -2288,31 +2353,46 @@ def nearby_places():
     headers = {"User-Agent":"GreenLens"}
 
     # 1️⃣ Reverse geocode
-    rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-    rev = requests.get(rev_url, headers=headers).json()
-
-    address = rev.get("address", {})
-    country = address.get("country")
-    city = address.get("city") or address.get("town") or address.get("state")
+    country = None
+    city = None
+    try:
+        rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        rev = requests.get(rev_url, headers=headers, timeout=6).json()
+        address = rev.get("address", {})
+        country = address.get("country")
+        city = address.get("city") or address.get("town") or address.get("state")
+    except Exception as e:
+        print("nearby_places nominatim error:", e)
 
     # 2️⃣ Suburbs
-    suburb_url = f"https://nominatim.openstreetmap.org/search?city={city}&format=json&limit=6"
-    suburb_res = requests.get(suburb_url, headers=headers).json()
-    suburbs = [p["display_name"].split(",")[0] for p in suburb_res]
+    suburbs = []
+    try:
+        if city:
+            suburb_url = f"https://nominatim.openstreetmap.org/search?city={city}&format=json&limit=6"
+            suburb_res = requests.get(suburb_url, headers=headers, timeout=6).json()
+            suburbs = [p["display_name"].split(",")[0] for p in suburb_res]
+    except Exception as e:
+        print("nearby_places suburbs error:", e)
 
     # 3️⃣ Nearby cities (GeoDB)
-    nearby_url = f"https://geodb-free-service.wirefreethought.com/v1/geo/locations/{lat},{lon}/nearbyCities?radius=300&limit=6"
-    nearby_res = requests.get(nearby_url).json()
-    nearby_cities = [c["city"] for c in nearby_res.get("data", [])]
+    nearby_cities = []
+    try:
+        nearby_url = f"https://geodb-free-service.wirefreethought.com/v1/geo/locations/{lat},{lon}/nearbyCities?radius=300&limit=6"
+        nearby_res = requests.get(nearby_url, timeout=8).json()
+        nearby_cities = [c["city"] for c in nearby_res.get("data", [])]
+    except Exception as e:
+        print("nearby_places geodb error:", e)
 
     # 4️⃣ Major cities of country
-    world_url = "http://geodb-free-service.wirefreethought.com/v1/geo/cities?limit=50&sort=-population"
-    world = requests.get(world_url).json()
-
     major_cities = []
-    for c in world.get("data", []):
-        if c["country"] == country:
-            major_cities.append(c["city"])
+    try:
+        world_url = "http://geodb-free-service.wirefreethought.com/v1/geo/cities?limit=50&sort=-population"
+        world = requests.get(world_url, timeout=8).json()
+        for c in world.get("data", []):
+            if c["country"] == country:
+                major_cities.append(c["city"])
+    except Exception as e:
+        print("nearby_places world error:", e)
 
     result = {
         "suburbs": suburbs[:6],
@@ -2471,7 +2551,7 @@ def generate_rooftop_heat(buildings, industry, green, aqi):
         score = 0.4
 
         # AQI factor
-        score += min(aqi / 300, 0.3)
+        score += min((aqi or 80) / 300, 0.3)
 
         # near industry → more rooftop needed
         for ind in industry[:80]:  # limit search
@@ -2534,7 +2614,7 @@ def generate_ground_heat(layers, aqi):
                 score -= 0.2
                 break
 
-        score += min(aqi / 300, 0.3)
+        score += min((aqi or 80) / 300, 0.3)
 
         score = max(0.1, min(score, 1.0))
 
@@ -2597,7 +2677,7 @@ def calculate_green_score(aqi, buildings, greens, water, rooftop_heat):
     score = 100
 
     # AQI penalty (0–25)
-    score -= min(aqi / 8, 25)
+    score -= min((aqi or 0) / 8, 25)
 
     # Building density penalty (0–25)
     building_penalty = min(len(buildings) * 0.05, 25)
@@ -2655,13 +2735,18 @@ def analyze():
         # add buffer so data never empty
         buffer = 0.01  # ~1km
 
-        layers = get_osm_features_bbox(
-            north + buffer,
-            south - buffer,
-            east + buffer,
-            west - buffer
-        )
-        layers = clip_layers_to_bbox(layers, north, south, east, west)
+        # ✅ FIX 2: try/except so OSM timeout → empty layers not 500
+        try:
+            layers = get_osm_features_bbox(
+                north + buffer,
+                south - buffer,
+                east + buffer,
+                west - buffer
+            )
+            layers = clip_layers_to_bbox(layers, north, south, east, west)
+        except Exception as e:
+            print("OSM error in /analyze:", e)
+            layers = {"roads":[],"water":[],"green":[],"industry":[],"buildings":[]}
 
         # 🔒 Safety fallback
         if layers is None:
@@ -2674,7 +2759,11 @@ def analyze():
             }
 
         aqi = get_real_aqi(lat, lon)
-        ndvi_tile = get_ndvi_tile(north, south, east, west)
+        try:
+            ndvi_tile = get_ndvi_tile(north, south, east, west)
+        except Exception as gee_err:
+            print("GEE NDVI error:", gee_err)
+            ndvi_tile = None
 
         rooftop_heat = generate_rooftop_heat(
             layers["buildings"],
@@ -2706,15 +2795,24 @@ def analyze():
 
     if lat and lon:
 
-        layers = get_osm_features_bbox(
-            lat+0.02, lat-0.02, lon+0.02, lon-0.02
-        )
+        # ✅ FIX 2: same here
+        try:
+            layers = get_osm_features_bbox(
+                lat+0.02, lat-0.02, lon+0.02, lon-0.02
+            )
+        except Exception as e:
+            print("OSM error in /analyze lat/lon:", e)
+            layers = {"roads":[],"water":[],"green":[],"industry":[],"buildings":[]}
 
         aqi = get_real_aqi(lat, lon)
 
-        ndvi_tile = get_ndvi_tile(
-            lat+0.02, lat-0.02, lon+0.02, lon-0.02
-        )
+        try:
+            ndvi_tile = get_ndvi_tile(
+                lat+0.02, lat-0.02, lon+0.02, lon-0.02
+            )
+        except Exception as gee_err:
+            print("GEE NDVI error:", gee_err)
+            ndvi_tile = None
 
         # ⭐ ADD SAME PIPELINE AS RECTANGLE MODE
         rooftop_heat = generate_rooftop_heat(
@@ -2758,7 +2856,7 @@ def generate_recommendations(aqi, buildings, industry, green, water, rooftop_hea
     recs = []
 
     # 🌫 Pollution mitigation
-    if aqi > 120:
+    if aqi and aqi > 120:
         recs.append("Plant dense tree buffers near high pollution zones")
 
     # 🔥 Heat island mitigation
@@ -2827,12 +2925,19 @@ def recommendations():
 
     # ⚡ Use same buffer as /analyze so OSM cache is always hit
     buffer = 0.01
-    layers = get_osm_features_bbox(
-        north + buffer,
-        south - buffer,
-        east  + buffer,
-        west  - buffer
-    )
+
+    # ✅ FIX 2: same here
+    try:
+        layers = get_osm_features_bbox(
+            north + buffer,
+            south - buffer,
+            east  + buffer,
+            west  - buffer
+        )
+    except Exception as e:
+        print("OSM error in /recommendations:", e)
+        layers = {"roads":[],"water":[],"green":[],"industry":[],"buildings":[]}
+
     lat_c = (north+south)/2
     lon_c = (east+west)/2
     aqi = get_real_aqi(lat_c, lon_c)  # also cached
@@ -2990,7 +3095,11 @@ def heatmap():
     if not north or not south or not east or not west:
         return {"error": "bbox missing"}, 400
 
-    tile = get_thermal_tile(north, south, east, west)
+    try:
+        tile = get_thermal_tile(north, south, east, west)
+    except Exception as e:
+        print("GEE heatmap error:", e)
+        tile = None
 
     return {
         "tile": tile,
@@ -3009,7 +3118,11 @@ def plantation_map():
     if not north or not south or not east or not west:
         return {"error":"bbox missing"}, 400
 
-    tile = get_plantation_tile(north, south, east, west)
+    try:
+        tile = get_plantation_tile(north, south, east, west)
+    except Exception as e:
+        print("GEE plantation error:", e)
+        tile = None
 
     return {"tile": tile}
 
@@ -3019,29 +3132,33 @@ def environment_analytics():
     lon = float(request.args.get("lon"))
 
     # 🌫 AQI + forecast
-    url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={WAQI_TOKEN}"
-    res = requests.get(url).json()
-
-    aqi_trend = []
+    aqi_trend = [50,60,70,65,55,58,62]
     try:
+        url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={WAQI_TOKEN}"
+        res = requests.get(url, timeout=6).json()
         forecast = res["data"]["forecast"]["daily"]["pm25"]
-        for day in forecast[:7]:
-            aqi_trend.append(day["avg"])
+        aqi_trend = [day["avg"] for day in forecast[:7]]
     except:
-        aqi_trend = [50,60,70,65,55,58,62]  # fallback only
+        pass
 
     # 🌦 Weather
-    w_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-    w = requests.get(w_url).json()
-
-    weather = {
-        "temp": w["main"]["temp"],
-        "humidity": w["main"]["humidity"],
-        "wind": w["wind"]["speed"]
-    }
+    weather = {"temp": None, "humidity": None, "wind": None}
+    try:
+        w_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
+        w = requests.get(w_url, timeout=6).json()
+        weather = {
+            "temp": w["main"]["temp"],
+            "humidity": w["main"]["humidity"],
+            "wind": w["wind"]["speed"]
+        }
+    except:
+        pass
 
     # 🗺 Land use from OSM mini analyze
-    layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    try:
+        layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    except:
+        layers = {"buildings":[],"green":[],"water":[],"industry":[],"roads":[]}
 
     total = (
         len(layers["buildings"])
@@ -3081,14 +3198,13 @@ def environment_full():
 
     # ----------------------------------
     # 🌫 AQI + Trend (WAQI)
+    # ✅ FIX 3: try/except — ye SIGKILL de raha tha
     # ----------------------------------
-    waqi_url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={WAQI_TOKEN}"
-    waqi_res = requests.get(waqi_url).json()
-
     aqi_trend = []
     aqi_value = None
-
     try:
+        waqi_url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={WAQI_TOKEN}"
+        waqi_res = requests.get(waqi_url, timeout=6).json()
         if waqi_res["status"] == "ok":
             aqi_value = waqi_res["data"]["aqi"]
             forecast = waqi_res["data"]["forecast"]["daily"]["pm25"]
@@ -3099,21 +3215,29 @@ def environment_full():
 
     # ----------------------------------
     # 🌦 Weather (OpenWeather)
+    # ✅ FIX 3: try/except
     # ----------------------------------
-    weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-    w = requests.get(weather_url).json()
-
-    weather = {
-        "temp": w["main"]["temp"],
-        "humidity": w["main"]["humidity"],
-        "wind": w["wind"]["speed"]
-    }
+    weather = {"temp": None, "humidity": None, "wind": None}
+    try:
+        weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
+        w = requests.get(weather_url, timeout=6).json()
+        weather = {
+            "temp": w["main"]["temp"],
+            "humidity": w["main"]["humidity"],
+            "wind": w["wind"]["speed"]
+        }
+    except:
+        pass
 
     # ----------------------------------
     # 🗺 Land Use (OSM)
+    # ✅ FIX 3: try/except — ye main OSM crash tha
     # ----------------------------------
-    # Use 0.02 buffer — same as city_stats and analyze lat/lon mode
-    layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    try:
+        layers = get_osm_features_bbox(lat+0.02, lat-0.02, lon+0.02, lon-0.02)
+    except Exception as e:
+        print("OSM error in environment_full:", e)
+        layers = {"buildings":[],"green":[],"water":[],"industry":[],"roads":[]}
 
     total = max(1,
         len(layers["buildings"])
@@ -3170,47 +3294,54 @@ def environment_context():
 
     headers = {"User-Agent":"GreenLens"}
 
-    # 🌍 FIND COUNTRY
-    rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-    rev = requests.get(rev_url, headers=headers).json()
-
-    country = rev["address"]["country"]
-    country = country.replace("Republic of ", "").replace("Kingdom of ", "").strip()
-
-    city_name = rev["address"].get("city") or rev["address"].get("town") or "Selected City"
-
-    # 🔹 helper to fetch city stats
-    
+    # ✅ FIX 4: Nominatim try/except — ye JSONDecodeError crash tha
+    try:
+        rev_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        rev = requests.get(rev_url, headers=headers, timeout=6).json()
+        country = rev["address"]["country"]
+        country = country.replace("Republic of ", "").replace("Kingdom of ", "").strip()
+        city_name = rev["address"].get("city") or rev["address"].get("town") or "Selected City"
+        country_code = rev["address"]["country_code"].upper()
+    except Exception as e:
+        print("Nominatim error in environment_context:", e)
+        try:
+            main_city = city_stats("Selected Area", lat, lon)
+        except:
+            main_city = {"name": "Selected Area", "lat": lat, "lon": lon, "aqi": None, "green_score": 0}
+        return jsonify({"main_city": main_city, "major_cities": []})
 
     # 🟢 MAIN CITY (single call)
     main_city = city_stats(city_name, lat, lon)
 
     # 🌆 GET COUNTRY CODE
-    country_code = rev["address"]["country_code"].upper()
-
-    geo_url = f"http://geodb-free-service.wirefreethought.com/v1/geo/cities?countryIds={country_code}&limit=10&sort=-population"
-    res = requests.get(geo_url).json()
-
-    city_list = []
-
-    for c in res.get("data", []):
-        city_list.append({
-            "name": c["city"],
-            "lat": c["latitude"],
-            "lon": c["longitude"]
-        })
-
-        if len(city_list) == 5:
-            break
+    try:
+        geo_url = f"http://geodb-free-service.wirefreethought.com/v1/geo/cities?countryIds={country_code}&limit=10&sort=-population"
+        res = requests.get(geo_url, timeout=8).json()
+        city_list = []
+        for c in res.get("data", []):
+            city_list.append({
+                "name": c["city"],
+                "lat": c["latitude"],
+                "lon": c["longitude"]
+            })
+            if len(city_list) == 5:
+                break
+    except Exception as e:
+        print("GeoDB error:", e)
+        city_list = []
 
     # 🚀 PARALLEL EXECUTION FOR MAJOR CITIES
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        major_cities = list(
-            executor.map(
-                lambda c: city_stats(c["name"], c["lat"], c["lon"]),
-                city_list
+    try:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            major_cities = list(
+                executor.map(
+                    lambda c: city_stats(c["name"], c["lat"], c["lon"]),
+                    city_list
+                )
             )
-        )
+    except Exception as e:
+        print("city_stats parallel error:", e)
+        major_cities = []
 
     result = {
         "main_city": main_city,
