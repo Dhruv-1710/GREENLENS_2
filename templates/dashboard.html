@@ -255,10 +255,10 @@
     <button onclick="changeYear('2016')">2016</button>
     <button onclick="changeYear('2020')">2020</button>
     <button onclick="changeYear('2024')">2024</button>
-    <button id="btn-thermal" onclick="setMode('thermal')">🌡 Heat Island</button>
-    <button id="btn-urban" onclick="setMode('urban')">🏙 Urban Growth</button>
-    <button id="btn-plantation" onclick="setMode('plantation')">🌳 Plantation</button>
-    <button id="btn-weather" onclick="setMode('weather')">🌦 Weather</button>
+    <button id="btn-thermal" class="mode-btn" onclick="setMode('thermal')">🌡 Heat Island</button>
+    <button id="btn-urban" class="mode-btn" onclick="setMode('urban')">🏙 Urban Growth</button>
+    <button id="btn-plantation" class="mode-btn" onclick="setMode('plantation')">🌳 Plantation</button>
+    <button id="btn-weather" class="mode-btn" onclick="setMode('weather')">🌦 Weather</button>
     <a href="/" class="nav-btn">🏠 Landing</a>
     <a href="/community" class="nav-btn">👥 Community</a>
 </div>
@@ -411,11 +411,10 @@ if(window.L && L.HeatLayer){
     L.HeatLayer.prototype.onAdd = function(map){
         _origOnAdd.call(this, map);
         if(this._canvas){
+            // Raise z-index only — the canvas must stay inside its Leaflet pane,
+            // otherwise it stops following the map's pan/zoom transforms
             this._canvas.style.zIndex = '9999';
-            this._canvas.style.position = 'absolute';
             this._canvas.style.pointerEvents = 'none';
-            // Move canvas to map container directly (not inside any pane)
-            map.getContainer().appendChild(this._canvas);
         }
         return this;
     };
@@ -1025,7 +1024,7 @@ function clearModes(){
 }
 
 function highlightActiveButton(mode){
-    document.querySelectorAll(".mode-btn").forEach(btn=>{ btn.style.background="#10b981"; });
+    document.querySelectorAll(".mode-btn").forEach(btn=>{ btn.style.background=""; });
     if(!mode) return;
     const active = document.getElementById("btn-"+mode);
     if(active) active.style.background="#ef4444";
@@ -1350,10 +1349,11 @@ async function startThermalMode(){
         }
     }
     const worldCoords=[[-90,-180],[-90,180],[90,180],[90,-180]];
-    const rectBounds=drawnRectangle.getBounds();
-    const holeCoords=[[rectBounds.getSouth(),rectBounds.getWest()],[rectBounds.getSouth(),rectBounds.getEast()],[rectBounds.getNorth(),rectBounds.getEast()],[rectBounds.getNorth(),rectBounds.getWest()]];
+    // drawnRectangle can be null when the bbox came from a city search — fall back to currentBBox
+    const holeCoords=[[south,west],[south,east],[north,east],[north,west]];
     thermalMask=L.polygon([worldCoords,holeCoords],{color:"#000",fillColor:"#020617",fillOpacity:0.45,weight:0}).addTo(map);
-    thermalMask.bringToFront(); drawnRectangle.bringToFront();
+    thermalMask.bringToFront();
+    if(drawnRectangle) drawnRectangle.bringToFront();
     thermalLegend=L.control({position:"bottomright"});
     thermalLegend.onAdd=function(){ const div=L.DomUtil.create("div"); div.innerHTML=`<div style="background:white;padding:10px;border-radius:8px;font-size:12px;"><b>Surface Temperature</b><br><div style="height:10px;background:linear-gradient(to right,#2c7bb6,#ffffbf,#fdae61,#d7191c);margin-top:6px"></div>Cool → Extreme Heat</div>`; return div; };
     thermalLegend.addTo(map);
@@ -1786,25 +1786,6 @@ async function loadRealCharts(lat,lon){
     });
 }
 
-async function loadIndianCities(){
-
-    const res = await fetch("/india_cities");
-    const cities = await res.json();
-
-    const row = document.getElementById("citiesRow");
-    row.innerHTML="";
-
-    cities.forEach(c=>{
-        row.innerHTML += `
-        <div class="city-card">
-            <h3>${c.city}</h3>
-            <h2 style="color:#f97316">${c.aqi}</h2>
-            Temp ${c.temp}°C<br>
-            Humidity ${c.humidity}%
-        </div>`;
-    });
-}
-
 // ============================================================
 // GLOBAL RANKINGS
 // ============================================================
@@ -1931,7 +1912,12 @@ window.onload=function(){
     loadGlobalRank("live");
 
     // Show Bhopal hardcoded data instantly on load
-    showHardcodedCity(CITY_DB["bhopal"]);
+    const start = CITY_DB["bhopal"];
+    showHardcodedCity(start);
+    // Then fill in colonies + charts for the default city (was never loaded before,
+    // leaving the colony table stuck on "Loading..." and all four charts blank)
+    loadColonies(start.lat, start.lon);
+    loadRealCharts(start.lat, start.lon);
 };
 
 </script>

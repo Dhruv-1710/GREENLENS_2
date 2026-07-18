@@ -13,8 +13,6 @@ import json
 import random
 import math
 from shapely.geometry import box, shape
-import geopandas as gpd
-import osmnx as ox
 from flask_cors import CORS
 
 
@@ -289,6 +287,12 @@ def get_real_aqi(lat, lon):
 
         if res["status"] == "ok":
             aqi_val = res["data"]["aqi"]
+            # WAQI returns "-" when a station has no data; passing that string
+            # downstream crashes the scoring math ("-" / 300)
+            try:
+                aqi_val = int(aqi_val)
+            except (TypeError, ValueError):
+                return None
             set_cache(key, aqi_val, 300)
             return aqi_val
 
@@ -2213,38 +2217,43 @@ def ndvi():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north:
+    if north is None:
         return jsonify({"error":"bbox missing"}),400
 
-    region = ee.Geometry.Rectangle([west, south, east, north])
+    try:
+        region = ee.Geometry.Rectangle([west, south, east, north])
 
-    # Sentinel-2 imagery
-    image = (
-        ee.ImageCollection("COPERNICUS/S2_SR")
-        .filterBounds(region)
-        .filterDate("2023-01-01","2024-01-01")
-        .median()
-    )
+        # Sentinel-2 imagery
+        image = (
+            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            .filterBounds(region)
+            .filterDate("2023-01-01","2024-01-01")
+            .median()
+        )
 
-    # NDVI calculation
-    ndvi = image.normalizedDifference(["B8","B4"])
+        # NDVI calculation
+        ndvi = image.normalizedDifference(["B8","B4"])
 
-    vis = {
-        "min": 0.2,
-        "max": 0.9,
-        "palette": [
-            "#654321",  # bare soil
-            "#b45309",  # dry vegetation
-            "#facc15",  # low vegetation
-            "#4ade80",  # medium vegetation
-            "#15803d"   # dense forest
-        ]
-    }
+        vis = {
+            "min": 0.2,
+            "max": 0.9,
+            "palette": [
+                "#654321",  # bare soil
+                "#b45309",  # dry vegetation
+                "#facc15",  # low vegetation
+                "#4ade80",  # medium vegetation
+                "#15803d"   # dense forest
+            ]
+        }
 
-    map_id = ndvi.getMapId(vis)
-    tile_url = map_id["tile_fetcher"].url_format
+        map_id = ndvi.getMapId(vis)
+        tile_url = map_id["tile_fetcher"].url_format
 
-    return jsonify({"tile": tile_url})
+        return jsonify({"tile": tile_url})
+
+    except Exception as e:
+        print("GEE NDVI route error:", e)
+        return jsonify({"tile": None, "error": "NDVI unavailable (Earth Engine not configured)"})
 
 # ---------------------------------------------------------
 # SEARCH API
@@ -2719,7 +2728,7 @@ def analyze():
     # -----------------------------
     # MODE 1 — Rectangle Selected
     # -----------------------------
-    if north and south and east and west:
+    if None not in (north, south, east, west):
 
         # ⚡ Cache analyze result for 10 min
         analyze_key = f"analyze_{round(north,3)}_{round(south,3)}_{round(east,3)}_{round(west,3)}"
@@ -2793,7 +2802,7 @@ def analyze():
         set_cache(analyze_key, result_data, 600)
         return jsonify(result_data)
 
-    if lat and lon:
+    if lat is not None and lon is not None:
 
         # ✅ FIX 2: same here
         try:
@@ -2841,6 +2850,10 @@ def analyze():
             "ndvi_tile": ndvi_tile,
             "green_score": green_score
         })
+
+    # Neither a bbox nor lat/lon was provided — return 400 instead of
+    # falling through with None (which Flask turns into a 500)
+    return jsonify({"error": "provide bbox params (n,s,e,w) or lat/lon"}), 400
 
 # ---------------------------------------------------------
 
@@ -3038,9 +3051,11 @@ def urban_growth():
         lon = random.uniform(west,east)
         new_zones.append([lat,lon])
 
-    best["new_zones"] = new_zones
+    # copy so the shared URBAN_CACHE entry is not mutated per-request
+    result = dict(best)
+    result["new_zones"] = new_zones
 
-    return best
+    return result
 
 # ---------------------------------------------------------
 # 🏙 URBAN FORECAST API
