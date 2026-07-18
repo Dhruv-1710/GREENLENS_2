@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Flask / SQLAlchemy runtime data
+instance/
+*.db
+
+# User uploads
+static/uploads/
+
+# Environment / secrets
+.env
