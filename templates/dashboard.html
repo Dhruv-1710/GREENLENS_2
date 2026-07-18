@@ -805,18 +805,26 @@ function createCityCardHTML(city, label) {
 
 // background fetch — doesn't block UI
 async function fetchCityDataBackground(lat, lon, cityName) {
+    // Set currentBBox immediately (it only needs lat/lon) so the mode buttons
+    // work right after a search — previously it was set only after /analyze
+    // responded, which can take ~30s when OSM is slow
+    currentBBox = {
+        n: lat+0.02, s: lat-0.02,
+        e: lon+0.02, w: lon-0.02
+    };
+
+    // Sidebar panels (impact / forecast / recommendations) previously only
+    // loaded when drawing a rectangle — load them for city searches too
+    loadImpact(currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w);
+    loadForecast(currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w);
+    setTimeout(() => loadRecommendations(currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w), 300);
+    setTimeout(() => loadRealCharts(lat, lon), 500);
+    setTimeout(() => loadColonies(lat, lon), 800);
+    setTimeout(() => loadEnvironmentContext(lat, lon), 1200);
+
     try {
         const data = await fetch(`/analyze?lat=${lat}&lon=${lon}`).then(r=>r.json());
-        updateMap(data); // this also sets lastAnalyzeData now
-        // Also set currentBBox so Heat Island / Plantation buttons work after city search
-        currentBBox = {
-            n: lat+0.02, s: lat-0.02,
-            e: lon+0.02, w: lon-0.02
-        };
-        // load charts lazily
-        setTimeout(() => loadRealCharts(lat, lon), 500);
-        setTimeout(() => loadColonies(lat, lon), 800);
-        setTimeout(() => loadEnvironmentContext(lat, lon), 1200);
+        updateMap(data); // this also sets lastAnalyzeData
     } catch(e) {
         console.log("Background fetch error:", e);
     }
@@ -829,6 +837,7 @@ const analyzeCache = new Map();
 
 map.on(L.Draw.Event.CREATED, async function(e) {
     currentMode = "analysis";
+    clearModes(); restoreAnalysisLayers(); highlightActiveButton(null);
     drawLayer.clearLayers();
     const layer = e.layer;
     drawLayer.addLayer(layer);
@@ -1003,13 +1012,26 @@ async function startWeatherMode(){
 // MODE MANAGEMENT
 // ============================================================
 function setMode(mode){
-    if(currentMode===mode){ currentMode="analysis"; clearModes(); highlightActiveButton(null); return; }
+    if(currentMode===mode){
+        // toggle current mode off → back to analysis view
+        currentMode="analysis"; clearModes(); restoreAnalysisLayers(); highlightActiveButton(null);
+        return;
+    }
     currentMode=mode; clearModes();
     if(mode==="thermal")    startThermalMode();
     if(mode==="plantation") startPlantationMode();
     if(mode==="weather")    startWeatherMode();
     if(mode==="urban")      startUrbanGrowthView();
     highlightActiveButton(mode);
+}
+
+// A mode function hit a guard (no bbox yet) — undo the mode switch so the
+// next click on the same button activates it instead of toggling it off
+function abortMode(){
+    currentMode="analysis";
+    clearModes();
+    restoreAnalysisLayers();
+    highlightActiveButton(null);
 }
 
 function clearModes(){
@@ -1021,6 +1043,22 @@ function clearModes(){
     if(weatherLegend){ map.removeControl(weatherLegend); weatherLegend=null; }
     if(urbanHeatLayer){ map.removeLayer(urbanHeatLayer); urbanHeatLayer=null; }
     if(urbanLegend)  { map.removeControl(urbanLegend); urbanLegend=null; }
+    // These leaked before: exiting Heat Island left the dark world-mask and
+    // legends on the map, making every other mode look broken
+    if(thermalMask)     { map.removeLayer(thermalMask); thermalMask=null; }
+    if(thermalLegend)   { map.removeControl(thermalLegend); thermalLegend=null; }
+    if(plantationLegend){ map.removeControl(plantationLegend); plantationLegend=null; }
+}
+
+// Re-add the analysis layers that turnOffAnalysisLayers() removed —
+// previously exiting a mode left the map permanently empty
+function restoreAnalysisLayers(){
+    [roadLayer, industryLayer, waterLayer, greenLayer, buildingLayer].forEach(l=>{
+        if(!map.hasLayer(l)) map.addLayer(l);
+    });
+    if(rooftopHeat._latlngs && rooftopHeat._latlngs.length && !map.hasLayer(rooftopHeat)){
+        rooftopHeat.addTo(map);
+    }
 }
 
 function highlightActiveButton(mode){
@@ -1111,6 +1149,13 @@ function updateMap(data) {
     if(data.ndvi_tile){
         if(ndviLayer) map.removeLayer(ndviLayer);
         ndviLayer = L.tileLayer(data.ndvi_tile,{opacity:0.9,maxZoom:19,pane:"ndviPane"}).addTo(map);
+    } else if(ndviLayer){
+        // drop any stale NDVI (e.g. fallback built from a previous city's data);
+        // the toggle rebuilds it from this fresh analysis on demand
+        const wasVisible = map.hasLayer(ndviLayer);
+        if(wasVisible) map.removeLayer(ndviLayer);
+        ndviLayer = null;
+        if(wasVisible && (ndviLayer = buildNdviFallback())) ndviLayer.addTo(map);
     }
 }
 
@@ -1182,9 +1227,37 @@ function triggerRooftopAI(){
     });
 }
 
+// Pseudo-NDVI built from OSM green areas — used when Earth Engine gave no tile,
+// so the NDVI button still shows vegetation instead of silently doing nothing
+function buildNdviFallback(){
+    if(!(lastAnalyzeData && lastAnalyzeData.layers)) return null;
+    const pts=[];
+    (lastAnalyzeData.layers.green||[]).forEach(poly=>{
+        if(!poly.length) return;
+        const lat=poly.reduce((s,p)=>s+p[0],0)/poly.length;
+        const lon=poly.reduce((s,p)=>s+p[1],0)/poly.length;
+        pts.push([lat,lon,0.9]);
+        poly.forEach((p,i)=>{ if(i%2===0) pts.push([p[0],p[1],0.7]); });
+    });
+    if(!pts.length) return null;
+    return L.heatLayer(pts,{
+        radius:30, blur:25, maxZoom:19, minOpacity:0.5,
+        gradient:{0.3:"#facc15",0.6:"#4ade80",1.0:"#15803d"}
+    });
+}
+
 function toggleLayer(name){
     const layerFn=LAYER_MAP[name]; if(!layerFn) return;
-    const layer=layerFn(); if(!layer) return;
+    let layer=layerFn();
+    if(!layer && name==="ndvi"){
+        ndviLayer = buildNdviFallback();
+        layer = ndviLayer;
+        if(layer) console.log("✅ NDVI: using OSM green-area fallback (no Earth Engine tile)");
+    }
+    if(!layer){
+        if(name==="ndvi") alert("NDVI needs analysis data — search a city or draw a rectangle first");
+        return;
+    }
     if(map.hasLayer(layer)){ map.removeLayer(layer); activeLayerBtns.delete(name); }
     else { map.addLayer(layer); activeLayerBtns.add(name); }
     document.querySelectorAll(".layer-panel button").forEach(btn=>{
@@ -1235,7 +1308,10 @@ async function loadNDVI(n,s,e,w){
 }
 
 async function startUrbanGrowthView(){
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
+    if(!currentBBox && !drawnRectangle){
+        alert("Please search a city or draw a rectangle first");
+        abortMode(); return;
+    }
     // Ensure currentBBox is set from drawnRectangle if available
     if(drawnRectangle && !currentBBox){
         const b=drawnRectangle.getBounds();
@@ -1269,9 +1345,12 @@ async function startUrbanGrowthView(){
 // THERMAL MODE
 // ============================================================
 async function startThermalMode(){
+    if(!currentBBox && !drawnRectangle){
+        alert("Please search a city or draw a rectangle first");
+        abortMode(); return;
+    }
     currentMode="thermal"; turnOffAnalysisLayers();
     if(sideBySideControl){ map.removeControl(sideBySideControl); sideBySideControl=null; }
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     if(window.thermalLayer){ map.removeLayer(window.thermalLayer); window.thermalLayer=null; }
     if(thermalMask){ map.removeLayer(thermalMask); thermalMask=null; }
     if(thermalLegend){ map.removeControl(thermalLegend); thermalLegend=null; }
@@ -1377,8 +1456,11 @@ function turnOffAnalysisLayers(){
 let plantationMapCache=null, plantationMapBboxKey=null;
 
 async function startPlantationMode(){
+    if(!currentBBox && !drawnRectangle){
+        alert("Please search a city or draw a rectangle first");
+        abortMode(); return;
+    }
     currentMode="plantation"; turnOffAnalysisLayers();
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     const n = drawnRectangle ? drawnRectangle.getBounds().getNorth() : currentBBox.n;
     const s = drawnRectangle ? drawnRectangle.getBounds().getSouth() : currentBBox.s;
     const e = drawnRectangle ? drawnRectangle.getBounds().getEast()  : currentBBox.e;
