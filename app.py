@@ -2910,7 +2910,7 @@ def impact():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"}, 400
 
     lat = (north + south) / 2
@@ -2933,7 +2933,7 @@ def recommendations():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"},400
 
     # ⚡ Use same buffer as /analyze so OSM cache is always hit
@@ -3107,7 +3107,7 @@ def heatmap():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error": "bbox missing"}, 400
 
     try:
@@ -3130,7 +3130,7 @@ def plantation_map():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"}, 400
 
     try:
@@ -3222,6 +3222,12 @@ def environment_full():
         waqi_res = requests.get(waqi_url, timeout=6).json()
         if waqi_res["status"] == "ok":
             aqi_value = waqi_res["data"]["aqi"]
+            # WAQI returns "-" for stations without data; a string here
+            # crashes the pollution_breakdown math below with a 500
+            try:
+                aqi_value = int(aqi_value)
+            except (TypeError, ValueError):
+                aqi_value = None
             forecast = waqi_res["data"]["forecast"]["daily"]["pm25"]
             for day in forecast[:7]:
                 aqi_trend.append(day["avg"])

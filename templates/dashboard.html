@@ -805,14 +805,15 @@ function createCityCardHTML(city, label) {
 
 // background fetch — doesn't block UI
 async function fetchCityDataBackground(lat, lon, cityName) {
+    // Set currentBBox immediately so Heat Island / Plantation / Urban Growth
+    // work right after a city search, without waiting for the slow /analyze call
+    currentBBox = {
+        n: lat+0.02, s: lat-0.02,
+        e: lon+0.02, w: lon-0.02
+    };
     try {
         const data = await fetch(`/analyze?lat=${lat}&lon=${lon}`).then(r=>r.json());
         updateMap(data); // this also sets lastAnalyzeData now
-        // Also set currentBBox so Heat Island / Plantation buttons work after city search
-        currentBBox = {
-            n: lat+0.02, s: lat-0.02,
-            e: lon+0.02, w: lon-0.02
-        };
         // load charts lazily
         setTimeout(() => loadRealCharts(lat, lon), 500);
         setTimeout(() => loadColonies(lat, lon), 800);
@@ -829,6 +830,11 @@ const analyzeCache = new Map();
 
 map.on(L.Draw.Event.CREATED, async function(e) {
     currentMode = "analysis";
+    // Leaving a mode via drawing must also remove its mask/legend and
+    // un-highlight the mode button, then bring the analysis layers back
+    clearModes();
+    restoreAnalysisLayers();
+    highlightActiveButton(null);
     drawLayer.clearLayers();
     const layer = e.layer;
     drawLayer.addLayer(layer);
@@ -973,9 +979,10 @@ function createWindCloudLayers(){
         windLayer  = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`,   { opacity:0.6, maxZoom:19 });
         cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`, { opacity:0.6, maxZoom:19 });
     } else {
-        // Fallback: use windy.com iframe approach won't work, just use rain radar
-        windLayer  = L.tileLayer("", { opacity:0 }); // empty layer
-        cloudLayer = L.tileLayer("", { opacity:0 }); // empty layer
+        // No API key — an empty-URL tile layer would request the page URL
+        // for every tile, so create nothing and rely on the rain radar
+        windLayer  = null;
+        cloudLayer = null;
     }
 }
 
@@ -995,7 +1002,8 @@ async function startWeatherMode(){
     map.setView([20,0],2);
     await loadRainRadarLayer();
     createWindCloudLayers();
-    windLayer.addTo(map); cloudLayer.addTo(map);
+    if(windLayer)  windLayer.addTo(map);
+    if(cloudLayer) cloudLayer.addTo(map);
     addWeatherLegend();
 }
 
@@ -1003,7 +1011,13 @@ async function startWeatherMode(){
 // MODE MANAGEMENT
 // ============================================================
 function setMode(mode){
-    if(currentMode===mode){ currentMode="analysis"; clearModes(); highlightActiveButton(null); return; }
+    if(currentMode===mode){ currentMode="analysis"; clearModes(); restoreAnalysisLayers(); highlightActiveButton(null); return; }
+    // Modes that need an area must be checked BEFORE wiping the map,
+    // otherwise the alert leaves an empty map and a stuck red button
+    if((mode==="thermal"||mode==="plantation"||mode==="urban") && !currentBBox && !drawnRectangle){
+        alert("Please search a city or draw a rectangle first");
+        return;
+    }
     currentMode=mode; clearModes();
     if(mode==="thermal")    startThermalMode();
     if(mode==="plantation") startPlantationMode();
@@ -1015,12 +1029,26 @@ function setMode(mode){
 function clearModes(){
     if(window.thermalLayer)   { map.removeLayer(window.thermalLayer); window.thermalLayer=null; }
     if(window.plantationTile) { map.removeLayer(window.plantationTile); window.plantationTile=null; }
+    if(thermalMask)  { map.removeLayer(thermalMask); thermalMask=null; }
+    if(thermalLegend){ map.removeControl(thermalLegend); thermalLegend=null; }
+    if(plantationLegend){ map.removeControl(plantationLegend); plantationLegend=null; }
     if(rainLayer)    { map.removeLayer(rainLayer); rainLayer=null; }
     if(windLayer)    { map.removeLayer(windLayer); windLayer=null; }
     if(cloudLayer)   { map.removeLayer(cloudLayer); cloudLayer=null; }
     if(weatherLegend){ map.removeControl(weatherLegend); weatherLegend=null; }
     if(urbanHeatLayer){ map.removeLayer(urbanHeatLayer); urbanHeatLayer=null; }
     if(urbanLegend)  { map.removeControl(urbanLegend); urbanLegend=null; }
+}
+
+// Re-add the OSM analysis layers removed by turnOffAnalysisLayers()
+function restoreAnalysisLayers(){
+    [roadLayer, industryLayer, waterLayer, greenLayer, buildingLayer].forEach(l=>{
+        if(!map.hasLayer(l)) map.addLayer(l);
+    });
+    if(rooftopHeat._latlngs && rooftopHeat._latlngs.length && !map.hasLayer(rooftopHeat)){
+        rooftopHeat.addTo(map);
+    }
+    if(ndviLayer && !map.hasLayer(ndviLayer)) ndviLayer.addTo(map);
 }
 
 function highlightActiveButton(mode){
@@ -1227,6 +1255,11 @@ async function loadNDVI(n,s,e,w){
     const res = await fetch(`/ndvi?n=${n}&s=${s}&e=${e}&w=${w}`);
     const data = await res.json();
 
+    if(!data.tile){
+        console.log("NDVI unavailable:", data.error || "no tile returned");
+        return;
+    }
+
     ndviLayer = L.tileLayer(data.tile,{
         opacity:1.0,
         maxZoom:19,
@@ -1269,9 +1302,9 @@ async function startUrbanGrowthView(){
 // THERMAL MODE
 // ============================================================
 async function startThermalMode(){
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     currentMode="thermal"; turnOffAnalysisLayers();
     if(sideBySideControl){ map.removeControl(sideBySideControl); sideBySideControl=null; }
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     if(window.thermalLayer){ map.removeLayer(window.thermalLayer); window.thermalLayer=null; }
     if(thermalMask){ map.removeLayer(thermalMask); thermalMask=null; }
     if(thermalLegend){ map.removeControl(thermalLegend); thermalLegend=null; }
@@ -1377,8 +1410,8 @@ function turnOffAnalysisLayers(){
 let plantationMapCache=null, plantationMapBboxKey=null;
 
 async function startPlantationMode(){
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     currentMode="plantation"; turnOffAnalysisLayers();
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     const n = drawnRectangle ? drawnRectangle.getBounds().getNorth() : currentBBox.n;
     const s = drawnRectangle ? drawnRectangle.getBounds().getSouth() : currentBBox.s;
     const e = drawnRectangle ? drawnRectangle.getBounds().getEast()  : currentBBox.e;
