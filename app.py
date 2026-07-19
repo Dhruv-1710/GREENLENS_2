@@ -15,7 +15,12 @@ import math
 from shapely.geometry import box, shape
 from flask_cors import CORS
 
-
+# Load .env for localhost runs (optional — deployment platforms set real env vars)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 WEATHER_KEY = os.environ.get("WEATHER_KEY", "")
 from flask_cors import CORS
@@ -304,16 +309,26 @@ def get_real_aqi(lat, lon):
 app = Flask(__name__)
 CORS(app)
 
+# EE_READY gates every satellite route — when False they return tile:None
+# immediately (no per-request GEE errors) and the frontend uses OSM fallbacks
+EE_READY = False
 try:
     _ee_key = os.environ.get("GEE_KEY_FILE", "/etc/secrets/.ee_credentials.json")
-    credentials = ee.ServiceAccountCredentials(
-        email=os.environ.get("GEE_EMAIL", "greenlens-render@plant-project-475614.iam.gserviceaccount.com"),
-        key_file=_ee_key
-    )
-    ee.Initialize(credentials=credentials, project=os.environ.get("GEE_PROJECT", ""))
+    if os.path.exists(_ee_key):
+        # Server deployment: service-account key file
+        credentials = ee.ServiceAccountCredentials(
+            email=os.environ.get("GEE_EMAIL", "greenlens-render@plant-project-475614.iam.gserviceaccount.com"),
+            key_file=_ee_key
+        )
+        ee.Initialize(credentials=credentials, project=os.environ.get("GEE_PROJECT") or None)
+    else:
+        # Localhost: reuse credentials from `earthengine authenticate` if the
+        # developer has run it; otherwise this raises and we run without GEE
+        ee.Initialize(project=os.environ.get("GEE_PROJECT") or None)
+    EE_READY = True
     print("✅ Earth Engine initialized successfully")
 except Exception as e:
-    print(f"⚠ Earth Engine not available (satellite features disabled): {type(e).__name__}")
+    print(f"⚠ Earth Engine not available — satellite tiles disabled, OSM-based fallbacks will be used ({type(e).__name__})")
     
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32))
 
@@ -2151,6 +2166,9 @@ def get_events():
 @app.route("/satellite/<year>")
 def satellite(year):
 
+    if not EE_READY:
+        return jsonify({"tile": None, "error": "Satellite imagery unavailable (Earth Engine not configured)"})
+
     year = int(year)
     start = f"{year}-01-01"
     end = f"{year}-12-31"
@@ -2215,6 +2233,9 @@ def ndvi():
 
     if north is None:
         return jsonify({"error":"bbox missing"}),400
+
+    if not EE_READY:
+        return jsonify({"tile": None, "error": "NDVI unavailable (Earth Engine not configured)"})
 
     try:
         region = ee.Geometry.Rectangle([west, south, east, north])
@@ -2769,11 +2790,12 @@ def analyze():
             }
 
         aqi = get_real_aqi(lat, lon)
-        try:
-            ndvi_tile = get_ndvi_tile(north, south, east, west)
-        except Exception as gee_err:
-            print("GEE NDVI error:", gee_err)
-            ndvi_tile = None
+        ndvi_tile = None
+        if EE_READY:
+            try:
+                ndvi_tile = get_ndvi_tile(north, south, east, west)
+            except Exception as gee_err:
+                print("GEE NDVI error:", gee_err)
 
         rooftop_heat = generate_rooftop_heat(
             layers["buildings"],
@@ -2816,13 +2838,14 @@ def analyze():
 
         aqi = get_real_aqi(lat, lon)
 
-        try:
-            ndvi_tile = get_ndvi_tile(
-                lat+0.02, lat-0.02, lon+0.02, lon-0.02
-            )
-        except Exception as gee_err:
-            print("GEE NDVI error:", gee_err)
-            ndvi_tile = None
+        ndvi_tile = None
+        if EE_READY:
+            try:
+                ndvi_tile = get_ndvi_tile(
+                    lat+0.02, lat-0.02, lon+0.02, lon-0.02
+                )
+            except Exception as gee_err:
+                print("GEE NDVI error:", gee_err)
 
         # ⭐ ADD SAME PIPELINE AS RECTANGLE MODE
         rooftop_heat = generate_rooftop_heat(
@@ -3111,11 +3134,12 @@ def heatmap():
     if None in (north, south, east, west):
         return {"error": "bbox missing"}, 400
 
-    try:
-        tile = get_thermal_tile(north, south, east, west)
-    except Exception as e:
-        print("GEE heatmap error:", e)
-        tile = None
+    tile = None
+    if EE_READY:
+        try:
+            tile = get_thermal_tile(north, south, east, west)
+        except Exception as e:
+            print("GEE heatmap error:", e)
 
     return {
         "tile": tile,
@@ -3134,11 +3158,12 @@ def plantation_map():
     if None in (north, south, east, west):
         return {"error":"bbox missing"}, 400
 
-    try:
-        tile = get_plantation_tile(north, south, east, west)
-    except Exception as e:
-        print("GEE plantation error:", e)
-        tile = None
+    tile = None
+    if EE_READY:
+        try:
+            tile = get_plantation_tile(north, south, east, west)
+        except Exception as e:
+            print("GEE plantation error:", e)
 
     return {"tile": tile}
 
@@ -3689,4 +3714,6 @@ def species_info():
 # ======================
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    # Local run: python app.py  →  http://127.0.0.1:5000/dashboard
+    # host 0.0.0.0 also allows phones/other devices on the same network
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
