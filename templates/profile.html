@@ -292,6 +292,7 @@ z-index:9999;
 <script>
 
 let uid = null;
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='48' fill='#10b981'/><circle cx='48' cy='38' r='15' fill='white' opacity='0.92'/><path d='M20 86c5-19 17-27 28-27s23 8 28 27z' fill='white' opacity='0.92'/></svg>");
 let username = null;
 
 window.addEventListener("DOMContentLoaded", checkAuth);
@@ -402,7 +403,7 @@ async function loadProfile() {
     const profileName = document.getElementById("profileName");
     const profileBio = document.getElementById("profileBio");
 
-    if (avatar) avatar.src = data.avatar || "";
+    if (avatar) avatar.src = data.avatar || DEFAULT_AVATAR;
     if (profileName) profileName.innerText = data.name || "";
     if (profileBio) profileBio.innerText = data.bio || "";
 }

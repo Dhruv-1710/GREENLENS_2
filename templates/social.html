@@ -386,6 +386,7 @@ z-index:9999;
 </div> <!-- page-container end -->
 <script>
 let uid = null;
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='48' fill='#10b981'/><circle cx='48' cy='38' r='15' fill='white' opacity='0.92'/><path d='M20 86c5-19 17-27 28-27s23 8 28 27z' fill='white' opacity='0.92'/></svg>");
 
 let limit = 5;
 let offset = 0;
@@ -545,7 +546,7 @@ async function loadPosts(reset = true) {
             <div class="post-card">
 
                 <div class="post-header" onclick="openProfileFromFeed('${post.uid}')">
-                    <img src="${post.avatar || ''}" class="post-avatar">
+                    <img src="${post.avatar || DEFAULT_AVATAR}" class="post-avatar">
 
                     <div>
                         <div class="post-author">${post.author}</div>
@@ -1127,7 +1128,7 @@ async function loadMiniProfile(){
     const userRes = await fetch("/api/user/" + uid);
     const user = await userRes.json();
 
-    document.getElementById("miniAvatar").src = user.avatar || "";
+    document.getElementById("miniAvatar").src = user.avatar || DEFAULT_AVATAR;
     document.getElementById("miniName").innerText = user.name;
     document.getElementById("miniBio").innerText = user.bio;
 }

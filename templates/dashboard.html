@@ -224,6 +224,32 @@
 
         /* loading spinner */
         .loading-text{ color:#9ca3af; padding:12px; font-size:13px; }
+
+        /* 🌍 plantation zone tiles */
+        .zone-grid{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+            gap:14px;
+            margin-top:12px;
+        }
+        .zone-tile{
+            background:var(--bg-soft);
+            border:1px solid var(--border-soft);
+            border-radius:12px;
+            padding:16px 14px;
+            text-align:center;
+        }
+        .zone-tile .zt-num{ font-size:26px; font-weight:700; color:var(--accent); }
+        .zone-tile .zt-label{ font-size:12px; color:#9ca3af; margin-top:4px; }
+        .zone-total{
+            margin-top:16px;
+            padding:12px 16px;
+            background:rgba(16,185,129,0.12);
+            border:1px solid rgba(16,185,129,0.3);
+            border-radius:12px;
+            font-size:15px;
+        }
+        .rank-note{ color:#9ca3af; font-size:11px; padding-top:10px; }
     </style>
 </head>
 <body>
@@ -251,10 +277,6 @@
 <div class="topbar">
     <input id="search" placeholder="Search City (e.g. Delhi)" onkeypress="if(event.key==='Enter') searchCity()">
     <button onclick="searchCity()">Search</button>
-    <button onclick="changeYear('clear')">LIVE</button>
-    <button onclick="changeYear('2016')">2016</button>
-    <button onclick="changeYear('2020')">2020</button>
-    <button onclick="changeYear('2024')">2024</button>
     <button id="btn-thermal" class="mode-btn" onclick="setMode('thermal')">🌡 Heat Island</button>
     <button id="btn-urban" class="mode-btn" onclick="setMode('urban')">🏙 Urban Growth</button>
     <button id="btn-plantation" class="mode-btn" onclick="setMode('plantation')">🌳 Plantation</button>
@@ -312,8 +334,8 @@
                     <div id="rooftopSpecies"></div>
                 </div>
             </div>
-            <div class="chart-card" style="margin-top:30px">
-                <h3>🌍 Plantation Zones</h3>
+            <div class="panel" style="margin-top:30px">
+                <h3 style="margin-top:0">🌍 Plantation Zones</h3>
                 <div id="zonePlan"></div>
             </div>
         </section>
@@ -357,9 +379,9 @@
         <section class="dash-section">
             <h2>Global Pollution Rankings</h2>
             <div class="ranking-tabs">
-                <button onclick="loadGlobalRank('live')">Live</button>
-                <button onclick="loadGlobalRank('polluted')">Most Polluted</button>
-                <button onclick="loadGlobalRank('clean')">Cleanest</button>
+                <button onclick="loadGlobalRank('live')">🌍 Global Overview</button>
+                <button onclick="loadGlobalRank('polluted')">🔴 Most Polluted</button>
+                <button onclick="loadGlobalRank('clean')">🟢 Cleanest</button>
             </div>
             <div id="rankingTable"></div>
         </section>
@@ -380,8 +402,11 @@
                 🌲 Trees needed: <b id="impactTrees">--</b><br>
                 ❄ Cooling: <b id="impactCooling">--</b> °C<br>
                 🌫 AQI Improvement: <b id="impactAQI">--</b><br>
-                🌍 CO₂ Absorption: <b id="impactCO2">--</b> tons/year
+                🌍 CO₂ Absorption: <b id="impactCO2">--</b> tons/year<br>
+                💰 Planting cost: <b id="impactCost">--</b><br>
+                🔧 Care (first 3 yrs): <b id="impactMaint">--</b>/year
             </div>
+            <div id="impactTimeline" style="margin-top:10px;font-size:12px;color:#9ca3af"></div>
         </div>
         <div class="panel">
             <h3>🧠 Recommendations</h3>
@@ -390,10 +415,11 @@
         <div class="panel">
             <h3>🏙 Forecast</h3>
             <div id="forecastBox">
-                2019: <b id="f2019">--</b><br>
-                2024: <b id="f2024">--</b><br>
-                2027: <b id="f2027">--</b><br>
-                2030: <b id="f2030">--</b>
+                2019: <b id="f2019">--</b>% built-up<br>
+                2024: <b id="f2024">--</b>% built-up<br>
+                2027: <b id="f2027">--</b>% (projected)<br>
+                2030: <b id="f2030">--</b>% (projected)
+                <div id="fRef" style="font-size:11px;color:#9ca3af;margin-top:6px"></div>
             </div>
         </div>
     </div>
@@ -729,6 +755,15 @@ function clipHeatPoints(points, n, s, e, w){
     return points.filter(p => p[0] >= s && p[0] <= n && p[1] >= w && p[1] <= e);
 }
 
+// Safety net: some leaflet.heat builds ignore the pane option and park the
+// canvas in overlayPane (z 400), where NDVI tiles (z 420) can cover it.
+// Move the canvas into heatPane so heat is ALWAYS visible on top.
+function ensureHeatOnTop(layer){
+    if(!layer || !layer._canvas) return;
+    const pane = map.getPane("heatPane");
+    if(pane && layer._canvas.parentNode !== pane) pane.appendChild(layer._canvas);
+}
+
 let drawControl = new L.Control.Draw({
     draw:{
         rectangle:{ shapeOptions:{ color:'#10b981', weight:2 } },
@@ -749,7 +784,7 @@ function jumpToCity(key) {
     // show hardcoded data instantly
     showHardcodedCity(c);
     // then fetch real API data in background
-    fetchCityDataBackground(c.lat, c.lon, c.name);
+    fetchCityDataBackground(c.lat, c.lon, c.name, key);
 }
 
 function showHardcodedCity(c) {
@@ -797,7 +832,7 @@ function createCityCardHTML(city, label) {
 }
 
 // background fetch — doesn't block UI
-async function fetchCityDataBackground(lat, lon, cityName) {
+async function fetchCityDataBackground(lat, lon, cityName, cityKey) {
     // Set currentBBox immediately so Heat Island / Plantation / Urban Growth
     // work right after a city search, without waiting for the slow /analyze call
     currentBBox = {
@@ -809,7 +844,7 @@ async function fetchCityDataBackground(lat, lon, cityName) {
         updateMap(data); // this also sets lastAnalyzeData now
         // load charts lazily
         setTimeout(() => loadRealCharts(lat, lon), 500);
-        setTimeout(() => loadColonies(lat, lon), 800);
+        setTimeout(() => loadColonies(lat, lon, cityKey), 800);
         setTimeout(() => loadEnvironmentContext(lat, lon), 1200);
     } catch(e) {
         console.log("Background fetch error:", e);
@@ -1061,6 +1096,13 @@ async function loadImpact(n,s,e,w){
         document.getElementById("impactCooling").innerText = "-"+(data.expected_cooling_c||0);
         document.getElementById("impactAQI").innerText     = "-"+(data.aqi_improvement||0)+" points";
         document.getElementById("impactCO2").innerText     = data.co2_absorption_tons_per_year||0;
+        document.getElementById("impactCost").innerText    = "$"+(data.planting_cost_usd||0).toLocaleString();
+        document.getElementById("impactMaint").innerText   = "$"+(data.annual_maintenance_usd||0).toLocaleString();
+        const tl = data.benefit_timeline||[];
+        document.getElementById("impactTimeline").innerHTML = tl.length
+            ? "<b style='color:#e5e7eb'>⏳ When will benefits arrive?</b>" +
+              tl.map(t=>`<div style="margin-top:6px"><b style="color:#22d3ee">${t.period}:</b> ${t.benefit}</div>`).join("")
+            : "";
     } catch(e) { console.log("Impact error:", e); }
 }
 
@@ -1084,6 +1126,9 @@ async function loadForecast(n,s,e,w){
         document.getElementById("f2024").innerText = data["2024"]||"--";
         document.getElementById("f2027").innerText = data["f2027"]||data["2027"]||"--";
         document.getElementById("f2030").innerText = data["f2030"]||data["2030"]||"--";
+        document.getElementById("fRef").innerText = data.reference_city
+            ? `📊 Estimate based on ${data.reference_city} urban-growth trend`
+            : "";
     } catch(e) { console.log("Forecast error:", e); }
 }
 
@@ -1128,9 +1173,10 @@ function updateMap(data) {
         if(currentBBox) heatPoints = clipHeatPoints(heatPoints, currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w);
         if(!map.hasLayer(rooftopHeat)) rooftopHeat.addTo(map);
         rooftopHeat.setLatLngs(heatPoints);
+        ensureHeatOnTop(rooftopHeat);
     }
 
-    if(data.ndvi_tile){
+    if(data.ndvi_tile && currentMode==="analysis"){
         if(ndviLayer) map.removeLayer(ndviLayer);
         ndviLayer = L.tileLayer(data.ndvi_tile,{opacity:0.9,maxZoom:19,pane:"ndviPane"}).addTo(map);
     }
@@ -1147,8 +1193,20 @@ function getAQIColor(aqi){
 // ============================================================
 // HEALTH PANEL
 // ============================================================
+// US-EPA AQI → PM2.5 concentration (µg/m³), piecewise-linear inverse
+function aqiToPM25(aqi){
+    const bp=[[0,50,0,12],[51,100,12.1,35.4],[101,150,35.5,55.4],
+              [151,200,55.5,150.4],[201,300,150.5,250.4],[301,500,250.5,500.4]];
+    for(const [al,ah,cl,ch] of bp){
+        if(aqi<=ah) return cl + (aqi-Math.max(al,0))*(ch-cl)/((ah-Math.max(al,0))||1);
+    }
+    return 500;
+}
+
 function updateHealthPanel(aqi){
-    const cig = Math.round((aqi||0)/22);
+    // Berkeley Earth rule of thumb: 22 µg/m³ of PM2.5 ≈ 1 cigarette/day
+    const pm25 = aqiToPM25(aqi||0);
+    const cig = Math.round((pm25/22)*10)/10;
     let level, color, advice=[];
 
     if(aqi<=50){
@@ -1172,7 +1230,9 @@ function updateHealthPanel(aqi){
     }
 
     document.getElementById("cigaretteEq").innerHTML =
-        `<b style="color:${color}">${level}</b><br>Breathing ≈ <b>${cig}</b> cigarettes/day`;
+        `<b style="color:${color}">${level}</b><br>
+         Breathing here ≈ <b>${cig}</b> cigarettes/day
+         <span style="color:#9ca3af;font-size:12px">(PM2.5 ≈ ${Math.round(pm25)} µg/m³ · 22 µg/m³ ≈ 1 cigarette)</span>`;
 
     const box = document.querySelector(".health-actions");
     box.innerHTML="";
@@ -1216,27 +1276,6 @@ function toggleLayer(name){
 }
 
 // ============================================================
-// SATELLITE YEAR
-// ============================================================
-let historicalLayer=null;
-
-async function changeYear(year){
-    if(historicalLayer && map.hasLayer(historicalLayer)){ map.removeLayer(historicalLayer); historicalLayer=null; }
-    if(year==="clear"){ satelliteNow.addTo(map); satelliteNow.bringToBack(); return; }
-    try {
-        const res = await fetch(`/satellite/${year}`);
-        const data = await res.json();
-        if(!data.tile){
-            console.log("Historical satellite unavailable:", data.error || "no tile returned");
-            alert("Historical satellite imagery needs Earth Engine setup (works on the deployed server, not locally).");
-            return;
-        }
-        historicalLayer = L.tileLayer(data.tile,{opacity:0.7,maxZoom:19,pane:"ndviPane"}).addTo(map);
-        satelliteNow.addTo(map); satelliteNow.bringToBack();
-    } catch(e) { console.log("Satellite error:", e); }
-}
-
-// ============================================================
 // URBAN GROWTH
 // ============================================================
 async function loadNDVI(n,s,e,w){
@@ -1262,12 +1301,15 @@ async function loadNDVI(n,s,e,w){
 }
 
 async function startUrbanGrowthView(){
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     // Ensure currentBBox is set from drawnRectangle if available
     if(drawnRectangle && !currentBBox){
         const b=drawnRectangle.getBounds();
         currentBBox={n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()};
     }
+    // Red heat must be clearly visible — clear vector layers and NDVI tile
+    turnOffAnalysisLayers();
+    if(ndviLayer && map.hasLayer(ndviLayer)) map.removeLayer(ndviLayer);
     try {
         const bboxStr=`${currentBBox.w},${currentBBox.s},${currentBBox.e},${currentBBox.n}`;
         const res=await fetch(`/urban_growth?bbox=${bboxStr}`);
@@ -1282,6 +1324,7 @@ async function startUrbanGrowthView(){
             gradient:{0.2:"#ffb347",0.5:"#ff7f50",0.75:"#ff0000",1.0:"#8b0000"}
         });
         urbanHeatLayer.addTo(map);
+        ensureHeatOnTop(urbanHeatLayer);
         map.fitBounds([[currentBBox.s,currentBBox.w],[currentBBox.n,currentBBox.e]]);
         urbanLegend=L.control({position:"bottomright"});
         urbanLegend.onAdd=function(){ const div=L.DomUtil.create("div","legend"); div.innerHTML=`<div style="background:white;padding:10px;border-radius:8px;font-size:12px;"><b>Urban Growth Risk</b><br><div style="height:10px;background:linear-gradient(to right,#ffb347,#ff0000,#8b0000);margin-top:6px"></div>Low → High</div>`; return div; };
@@ -1364,8 +1407,11 @@ async function startThermalMode(){
                 gradient:{0.0:"#2c7bb6",0.3:"#abd9e9",0.5:"#ffffbf",0.75:"#fdae61",1.0:"#d7191c"}
             });
             window.thermalLayer.addTo(map);
+            ensureHeatOnTop(window.thermalLayer);
         }
     }
+    // Thermal overlay must not hide under the NDVI tile
+    if(ndviLayer && map.hasLayer(ndviLayer)) map.removeLayer(ndviLayer);
     // Center the view on the analyzed box so the heat overlay is on screen
     map.fitBounds([[south,west],[north,east]]);
     const worldCoords=[[-90,-180],[-90,180],[90,180],[90,-180]];
@@ -1454,6 +1500,7 @@ async function startPlantationMode(){
                 gradient:{0.0:"#90ee90", 0.3:"#66ff66", 0.6:"#00cc00", 1.0:"#006600"}
             });
             window.plantationTile.addTo(map);
+            ensureHeatOnTop(window.plantationTile);
             plantationLegend=L.control({position:"bottomright"});
             plantationLegend.onAdd=function(){
                 const div=L.DomUtil.create("div");
@@ -1495,6 +1542,7 @@ async function startPlantationMode(){
                     gradient:{0.0:"#90ee90",0.3:"#66ff66",0.6:"#00cc00",1.0:"#006600"}
                 });
                 window.plantationTile.addTo(map);
+                ensureHeatOnTop(window.plantationTile);
                 plantationLegend=L.control({position:"bottomright"});
                 plantationLegend.onAdd=function(){
                     const div=L.DomUtil.create("div");
@@ -1509,16 +1557,63 @@ async function startPlantationMode(){
 }
 
 // ============================================================
-// ✅ COLONIES TABLE — fixed (removed temp/humidity that backend doesn't send)
+// ✅ COLONIES TABLE — live WAQI stations first; if none available,
+// falls back to hardcoded per-city estimates (clearly labelled)
 // ============================================================
-async function loadColonies(lat, lon){
+const COLONY_DB = {
+    bhopal:   ["TT Nagar","Arera Colony","MP Nagar","Kolar Road","Bairagarh","Habibganj"],
+    delhi:    ["Anand Vihar","RK Puram","Dwarka","Rohini","ITO","Punjabi Bagh"],
+    mumbai:   ["Bandra","Andheri","Colaba","Worli","Borivali","Powai"],
+    london:   ["Westminster","Camden","Hackney","Greenwich","Kensington","Islington"],
+    nyc:      ["Manhattan","Brooklyn","Queens","The Bronx","Staten Island","Harlem"],
+    tokyo:    ["Shinjuku","Shibuya","Chiyoda","Setagaya","Minato","Sumida"],
+    paris:    ["Le Marais","Montmartre","La Défense","Belleville","Latin Quarter","Bercy"],
+    sydney:   ["CBD","Parramatta","Bondi","Chatswood","Newtown","Liverpool"],
+    dubai:    ["Deira","Jumeirah","Al Barsha","Business Bay","Al Quoz","Mirdif"],
+    beijing:  ["Chaoyang","Haidian","Dongcheng","Xicheng","Fengtai","Shijingshan"]
+};
+// deterministic spread so estimates stay stable between reloads
+const COLONY_SPREAD = [1.15, 0.85, 1.05, 0.95, 1.25, 0.9];
+
+function nearestCityKey(lat, lon){
+    let bestKey=null, bestD=1.0; // max ~1° (~110 km)
+    for(const k in CITY_DB){
+        const c=CITY_DB[k];
+        const d=Math.sqrt((c.lat-lat)**2 + (c.lon-lon)**2);
+        if(d<bestD){ bestD=d; bestKey=k; }
+    }
+    return bestKey;
+}
+
+function colonyStatus(aqi){
+    return aqi<=80 ? "Good" : aqi<=120 ? "Moderate" : "Unhealthy";
+}
+
+function buildColonyFallback(cityKey){
+    const names = COLONY_DB[cityKey];
+    if(!names) return null;
+    const base = CITY_DB[cityKey] ? CITY_DB[cityKey].aqi : 100;
+    return names.map((name,i)=>{
+        const aqi = Math.max(10, Math.round(base * COLONY_SPREAD[i % COLONY_SPREAD.length]));
+        return { name, aqi, pm25: Math.round(aqi*0.4), pm10: Math.round(aqi*0.6), status: colonyStatus(aqi) };
+    });
+}
+
+async function loadColonies(lat, lon, cityKey){
     try {
         const res=await fetch(`/local_areas_analysis?lat=${lat}&lon=${lon}`);
-        const areas=await res.json();
+        let areas=await res.json();
+        let estimated = false;
 
-        if(!areas || areas.length===0){
-            document.getElementById("colonyTable").innerHTML="<div class='loading-text'>No local area data available</div>";
-            return;
+        if(!areas || !Array.isArray(areas) || areas.length===0){
+            const key = cityKey || nearestCityKey(lat, lon);
+            areas = key ? buildColonyFallback(key) : null;
+            estimated = true;
+            if(!areas){
+                document.getElementById("colonyTable").innerHTML=
+                    "<div class='loading-text'>ℹ️ No monitoring stations found near this location. Try a major city for local air-quality data.</div>";
+                return;
+            }
         }
 
         let html=`
@@ -1544,11 +1639,35 @@ async function loadColonies(lat, lon){
         });
 
         html+="</table>";
+        if(estimated){
+            html+="<div class='rank-note'>* Estimated from the city average — no live station data for these areas right now</div>";
+        }
         document.getElementById("colonyTable").innerHTML=html;
     } catch(e) {
         console.log("Colony error:", e);
-        document.getElementById("colonyTable").innerHTML="<div class='loading-text'>Could not load local data</div>";
+        const key = cityKey || nearestCityKey(lat, lon);
+        const fb = key ? buildColonyFallback(key) : null;
+        if(fb){ renderColonyFallbackTable(fb); }
+        else document.getElementById("colonyTable").innerHTML="<div class='loading-text'>Could not load local data</div>";
     }
+}
+
+function renderColonyFallbackTable(areas){
+    let html=`<table style="width:100%;margin-top:10px;border-collapse:collapse">
+        <tr style="color:#9ca3af;font-size:12px">
+            <th style="text-align:left;padding:8px">Location</th><th style="padding:8px">Status</th>
+            <th style="padding:8px">AQI</th><th style="padding:8px">PM2.5</th><th style="padding:8px">PM10</th></tr>`;
+    areas.forEach(a=>{
+        const color = a.status==="Good" ? "#22c55e" : a.status==="Moderate" ? "#eab308" : "#ef4444";
+        html+=`<tr style="border-top:1px solid rgba(255,255,255,0.05)">
+            <td style="padding:8px;font-size:13px">${a.name}</td>
+            <td style="padding:8px;text-align:center"><span style="background:${color};padding:3px 8px;border-radius:6px;font-size:12px">${a.status}</span></td>
+            <td style="padding:8px;text-align:center">${a.aqi}</td>
+            <td style="padding:8px;text-align:center">${a.pm25}</td>
+            <td style="padding:8px;text-align:center">${a.pm10}</td></tr>`;
+    });
+    html+="</table><div class='rank-note'>* Estimated from the city average — no live station data for these areas right now</div>";
+    document.getElementById("colonyTable").innerHTML=html;
 }
 
 // ============================================================
@@ -1654,7 +1773,9 @@ async function loadRealCharts(lat,lon){
 
     /* 🌫 AQI 7-DAY TREND — line chart */
     if(histChart) histChart.destroy();
-    const aqiTrend = data.aqi_trend || [];
+    let aqiTrend = data.aqi_trend || [];
+    let trendEstimated = false;
+    if(!aqiTrend.length){ aqiTrend=[52,58,64,61,55,57,60]; trendEstimated=true; }
     histChart=new Chart(document.getElementById("histChart"),{
         type:"line",
         data:{
@@ -1675,7 +1796,7 @@ async function loadRealCharts(lat,lon){
         options:{
             responsive:true,
             plugins:{
-                title:{ display:true, text:"🌫 7-Day Air Quality Trend", color:"#e5e7eb", font:{size:14,weight:"600"} },
+                title:{ display:true, text: trendEstimated ? "🌫 7-Day Air Quality Trend (typical estimate)" : "🌫 7-Day Air Quality Trend", color:"#e5e7eb", font:{size:14,weight:"600"} },
                 legend:{ display:false },
                 tooltip:{
                     backgroundColor:"rgba(17,24,39,0.95)",
@@ -1736,7 +1857,14 @@ async function loadRealCharts(lat,lon){
 
     /* 🗺 LAND USE BREAKDOWN — horizontal bar */
     if(barChart) barChart.destroy();
-    const landUse = data.land_use || {};
+    let landUse = data.land_use || {};
+    let landUseEstimated = false;
+    const luSum = Object.values(landUse).reduce((a,b)=>a+(+b||0),0);
+    if(luSum <= 0){
+        // OSM had no data for this spot — show a typical dense-city split, labelled
+        landUse = {"Buildings %":48, "Green %":22, "Water %":8, "Industry %":22};
+        landUseEstimated = true;
+    }
     const landUseLabels = Object.keys(landUse);
     const landUseColors = [CHART_COLORS.blue, CHART_COLORS.green, CHART_COLORS.cyan, CHART_COLORS.purple, CHART_COLORS.orange];
 
@@ -1754,7 +1882,7 @@ async function loadRealCharts(lat,lon){
         options:{
             responsive:true,
             plugins:{
-                title:{ display:true, text:"🗺 Land Use Breakdown", color:"#e5e7eb", font:{size:14,weight:"600"} },
+                title:{ display:true, text: landUseEstimated ? "🗺 Land Use Breakdown (typical city estimate)" : "🗺 Land Use Breakdown", color:"#e5e7eb", font:{size:14,weight:"600"} },
                 legend:{ display:false },
                 tooltip:{
                     backgroundColor:"rgba(17,24,39,0.95)",
@@ -1803,17 +1931,44 @@ async function loadRealCharts(lat,lon){
 // ============================================================
 // GLOBAL RANKINGS
 // ============================================================
+// Hardcoded, consistent with CITY_DB — indicative annual averages, rendered
+// instantly with a clear label so nothing pretends to be real-time
+const RANKINGS = {
+    live: [
+        {city:"Delhi",aqi:210},{city:"Beijing",aqi:165},{city:"Dubai",aqi:95},
+        {city:"London",aqi:68},{city:"New York",aqi:75},{city:"Paris",aqi:70},
+        {city:"Tokyo",aqi:55},{city:"Singapore",aqi:60},{city:"Sydney",aqi:28},
+        {city:"Toronto",aqi:35}
+    ],
+    polluted: [
+        {city:"Delhi",aqi:210},{city:"Lahore",aqi:198},{city:"Kanpur",aqi:195},
+        {city:"Patna",aqi:190},{city:"Dhaka",aqi:185},{city:"Karachi",aqi:175},
+        {city:"Xi'an",aqi:170},{city:"Kolkata",aqi:168},{city:"Beijing",aqi:165},
+        {city:"Cairo",aqi:155}
+    ],
+    clean: [
+        {city:"Sydney",aqi:28},{city:"Adelaide",aqi:28},{city:"Vancouver",aqi:28},
+        {city:"Perth",aqi:30},{city:"Melbourne",aqi:32},{city:"Calgary",aqi:32},
+        {city:"Brisbane",aqi:35},{city:"Toronto",aqi:35},{city:"Montreal",aqi:38},
+        {city:"Cape Town",aqi:42}
+    ]
+};
+const RANK_TITLES = {
+    live: "Global snapshot of major cities",
+    polluted: "Cities with the worst average air quality",
+    clean: "Cities with the cleanest average air quality"
+};
+
 function loadGlobalRank(mode){
-    if(rankingCache[mode]){ renderRanking(rankingCache[mode]); return; }
-    fetch(`/global_rank?mode=${mode}`)
-        .then(res=>res.json())
-        .then(data=>{ rankingCache[mode]=data; renderRanking(data); })
-        .catch(e=>console.log("Rank error:",e));
+    renderRanking(RANKINGS[mode]||RANKINGS.live, RANK_TITLES[mode]||"");
 }
 
-function renderRanking(data){
-    let html=`<div class="ranking-card"><div class="ranking-header"><span>Rank</span><span>City</span><span style="text-align:right">AQI</span></div>`;
+function renderRanking(data, subtitle){
+    let html=`<div class="ranking-card">`;
+    if(subtitle) html+=`<div class="loading-text" style="padding:0 0 10px">${subtitle}</div>`;
+    html+=`<div class="ranking-header"><span>Rank</span><span>City</span><span style="text-align:right">AQI</span></div>`;
     data.forEach((c,i)=>{ html+=`<div class="ranking-row"><span class="rank">#${i+1}</span><span class="city">${c.city}</span><span class="aqi">${c.aqi}</span></div>`; });
+    html+=`<div class="rank-note">* Indicative annual-average AQI values for comparison — not a real-time feed</div>`;
     html+="</div>";
     document.getElementById("rankingTable").innerHTML=html;
 }
@@ -1877,12 +2032,21 @@ async function loadPlantationAI(n,s,e,w){
     }
 
     if(data.zone_plan){
+        const zp = data.zone_plan;
+        const tile = (emoji,label,num)=>`
+            <div class="zone-tile">
+                <div class="zt-num">${(num||0).toLocaleString()}</div>
+                <div class="zt-label">${emoji} ${label}</div>
+            </div>`;
         document.getElementById("zonePlan").innerHTML=`
-            🛣 Roadside Trees: <b>${data.zone_plan.roadside}</b><br>
-            🌳 Park Trees: <b>${data.zone_plan.parks}</b><br>
-            🌾 Vacant Land Trees: <b>${data.zone_plan.vacant_land}</b><br>
-            🏢 Rooftop Trees: <b>${data.zone_plan.rooftop}</b><br><br>
-            🌍 <b>Total Trees Required: ${(data.zone_plan.total_trees||0).toLocaleString()}</b>`;
+            <div class="zone-grid">
+                ${tile("🛣","Roadside Trees",zp.roadside)}
+                ${tile("🌳","Park Trees",zp.parks)}
+                ${tile("🌾","Vacant Land Trees",zp.vacant_land)}
+                ${tile("🏢","Rooftop Trees",zp.rooftop)}
+            </div>
+            <div class="zone-total">🌍 <b>Total Trees Required: ${(zp.total_trees||0).toLocaleString()}</b>
+                — full canopy impact in ~8–10 years, first AQI benefits in 2–3 years</div>`;
     }
 }
 
@@ -1930,7 +2094,7 @@ window.onload=function(){
     showHardcodedCity(start);
     // Then fill in colonies + charts for the default city (was never loaded before,
     // leaving the colony table stuck on "Loading..." and all four charts blank)
-    loadColonies(start.lat, start.lon);
+    loadColonies(start.lat, start.lon, "bhopal");
     loadRealCharts(start.lat, start.lon);
 };
 

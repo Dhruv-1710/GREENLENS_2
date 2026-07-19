@@ -947,6 +947,22 @@ db = SQLAlchemy(app)
 UPLOAD_FOLDER = "static/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+def save_upload(file_storage):
+    # Unique name avoids collisions; URL built with forward slashes so it
+    # works on Windows too (os.path.join gives backslashes there → 404s)
+    filename = f"{uuid.uuid4().hex[:8]}_{secure_filename(file_storage.filename)}"
+    file_storage.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+    return f"/static/uploads/{filename}"
+
+def public_upload_url(path):
+    # Normalize legacy DB values saved with os.path.join on Windows
+    if not path:
+        return ""
+    p = str(path).replace("\\", "/")
+    if not (p.startswith("/") or p.startswith("http") or p.startswith("data:")):
+        p = "/" + p
+    return p
 # ======================
 # DATABASE MODELS
 # ======================
@@ -1140,7 +1156,7 @@ def get_user(uid):
     return jsonify({
         "uid": user.uid,
         "name": user.name,
-        "avatar": user.avatar,
+        "avatar": public_upload_url(user.avatar),
         "bio": user.bio,
         "email": user.email,
         "is_admin": user.is_admin
@@ -1176,10 +1192,7 @@ def update_user():
         user.bio = bio
 
     if avatar_file and avatar_file.filename:
-        filename = secure_filename(avatar_file.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        avatar_file.save(filepath)
-        user.avatar = filepath
+        user.avatar = save_upload(avatar_file)
 
     db.session.commit()
     return jsonify({"status": "updated"})
@@ -1318,10 +1331,7 @@ def create_event():
     # 5️⃣ Handle optional image upload
     image_path = None
     if image and image.filename:
-        filename = secure_filename(image.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(filepath)
-        image_path = filepath
+        image_path = save_upload(image)
 
     # 6️⃣ Save event
     event = Event(
@@ -1360,7 +1370,7 @@ def search_users(query, current_uid):
                 "uid": user.uid,
                 "name": user.name,
                 "bio": user.bio,
-                "avatar": user.avatar
+                "avatar": public_upload_url(user.avatar)
             })
 
     return jsonify(results)
@@ -1492,14 +1502,14 @@ def get_posts():
             "id": p.id,
             "uid": p.uid,
             "author": p.author,
-            "avatar": User.query.get(p.uid).avatar if User.query.get(p.uid) else "",
+            "avatar": public_upload_url(User.query.get(p.uid).avatar) if User.query.get(p.uid) else "",
             "content": p.content,
             "likes": p.likes,
             "shares": p.shares,
             "timestamp": p.timestamp.isoformat(),
             "is_repost": p.is_repost,
             "original_post_id": p.original_post_id,
-            "image_url": p.image_url
+            "image_url": public_upload_url(p.image_url)
         }
 
         # If repost, attach original data
@@ -1580,13 +1590,13 @@ def get_feed(uid):
             "id": p.id,
             "uid": p.uid,
             "author": p.author,
-            "avatar": users[p.uid].avatar if p.uid in users else "",
+            "avatar": public_upload_url(users[p.uid].avatar) if p.uid in users else "",
             "content": p.content,
             "likes": p.likes,
             "shares": p.shares,
             "timestamp": p.timestamp.isoformat(),
             "is_repost": p.is_repost,
-            "image_url": p.image_url,
+            "image_url": public_upload_url(p.image_url),
             "original_post_id": p.original_post_id
         }
 
@@ -1638,10 +1648,7 @@ def create_post():
     image_path = None
 
     if image and image.filename:
-        filename = secure_filename(image.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(filepath)
-        image_path = filepath
+        image_path = save_upload(image)
 
     post = Post(
         uid=uid,
@@ -2083,7 +2090,7 @@ def get_inbox(uid):
             conversations[other] = {
                 "uid": other,
                 "name": user.name if user else "User",
-                "avatar": user.avatar if user else "",
+                "avatar": public_upload_url(user.avatar) if user else "",
                 "last_message": m.text,
                 "timestamp": m.timestamp.isoformat(),
                 "unread": unread
@@ -2169,7 +2176,7 @@ def get_events():
             "location": e.location,
             "description": e.description,
             "date": e.event_date.isoformat(),
-            "image_url": e.image_url
+            "image_url": public_upload_url(e.image_url)
         })
 
     return jsonify(result)
@@ -3038,8 +3045,21 @@ def calculate_green_impact(north, south, east, west, aqi):
     # 💨 AQI improvement (max 25 points)
     aqi_improvement = int(min(aqi * 0.12, 25))
 
-    # 🌿 CO₂ absorption (tons/year)
+    # 🌿 CO₂ absorption (tons/year) — mature urban tree ≈ 22 kg/yr
     co2_tons = round((trees_required * 22) / 1000, 1)
+
+    # 💰 Cost model (indicative): sapling + planting ≈ $2.5/tree,
+    # watering/care ≈ $0.8/tree/yr for the first 3 establishment years
+    planting_cost = int(trees_required * 2.5)
+    annual_maintenance = int(trees_required * 0.8)
+
+    # ⏳ When benefits arrive (urban-forestry rules of thumb)
+    benefit_timeline = [
+        {"period": "6–12 months", "benefit": "Saplings establish, dust capture begins (~10% of full impact)"},
+        {"period": "2–3 years",   "benefit": "First measurable AQI improvement (~40% of full impact)"},
+        {"period": "5 years",     "benefit": "Canopy forms, street-level cooling felt (~75% of full impact)"},
+        {"period": "8–10 years",  "benefit": "Mature canopy — full cooling, AQI and CO₂ impact reached"},
+    ]
 
     return {
         "area_km2": round(area_km2, 2),
@@ -3047,7 +3067,10 @@ def calculate_green_impact(north, south, east, west, aqi):
         "expected_cooling_c": round(cooling, 1),
         "aqi_improvement": aqi_improvement,
         "co2_absorption_tons_per_year": co2_tons,
-        "canopy_gain_percent": 15
+        "canopy_gain_percent": 15,
+        "planting_cost_usd": planting_cost,
+        "annual_maintenance_usd": annual_maintenance,
+        "benefit_timeline": benefit_timeline
     }
 
 
@@ -3107,12 +3130,14 @@ def forecast():
 
     # nearest cached region find
     best = None
+    best_key = None
     best_dist = 999
 
     for area,data in URBAN_CACHE.items():
         d = distance(user_center, bbox_center(data["bbox"]))
         if d < best_dist:
             best = data
+            best_key = area
             best_dist = d
 
     built_2019 = best["2019_built_percent"]
@@ -3130,7 +3155,9 @@ def forecast():
         "2024": built_2024,
         "2027": built_2027,
         "2030": built_2030,
-        "growth_rate_per_year": round(growth_rate,2)
+        "growth_rate_per_year": round(growth_rate,2),
+        # so the UI can say which city's trend this estimate is based on
+        "reference_city": (best_key or "").title()
     }
 
 # 🌡 THERMAL HEATMAP ROUTE
