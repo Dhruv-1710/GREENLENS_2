@@ -664,7 +664,7 @@ def get_osm_features_bbox(n, s, e, w):
     /* BUILDINGS */
     way["building"]({s},{w},{n},{e});
     );
-    out geom qt 8000;
+    out geom qt;
     """
 
     # ⚡ Multiple Overpass endpoints — rotate on failure (rate limit fix)
@@ -735,7 +735,7 @@ def get_osm_features_bbox(n, s, e, w):
     try:
         res = res_json
 
-        elements = res.get("elements", [])[:6000]
+        elements = res.get("elements", [])
         for el in elements:
 
             # skip if geometry missing
@@ -758,9 +758,7 @@ def get_osm_features_bbox(n, s, e, w):
                 tags.get("natural") == "water"
                 or tags.get("water") in ["lake","pond","reservoir"]
             ):
-                # ignore huge riverbanks (too large polygons)
-                if len(coords) < 800:
-                    layers["water"].append(coords)
+                layers["water"].append(coords)
 
             # Green areas → polygons
             elif (
@@ -768,8 +766,7 @@ def get_osm_features_bbox(n, s, e, w):
                 or tags.get("natural") in ["wood","grassland","scrub"]
                 or tags.get("landuse") in ["forest","grass","meadow","orchard"]
             ):
-                if len(coords) < 1500:
-                    layers["green"].append(coords)
+                layers["green"].append(coords)
 
             # Industry → polygons
             elif (
@@ -779,10 +776,9 @@ def get_osm_features_bbox(n, s, e, w):
             ):
                 layers["industry"].append(coords)
 
-            # Buildings → polygons (cap at 2000 to prevent OOM)
+            # Buildings → polygons (no cap — every building in the box is kept)
             elif "building" in tags:
-                if len(layers["buildings"]) < 2000:
-                    layers["buildings"].append(coords)
+                layers["buildings"].append(coords)
 
     except Exception as e:
         print("OSM PARSE ERROR:", e)
@@ -2533,46 +2529,63 @@ def global_rank():
 # ---------------------------------------------------------
 
 
+def _poly_center(poly):
+    lat = sum(p[0] for p in poly) / len(poly)
+    lon = sum(p[1] for p in poly) / len(poly)
+    return lat, lon
+
+# Grid spatial index: bucket centers by cell so proximity checks are O(1)
+# per query instead of scanning every polygon. This is what lets the heat
+# engines run WITHOUT sampling caps on large areas.
+def _build_grid(polys, cell):
+    grid = {}
+    centers = []
+    for poly in polys:
+        if not poly:
+            continue
+        c = _poly_center(poly)
+        centers.append(c)
+        key = (int(c[0] // cell), int(c[1] // cell))
+        grid.setdefault(key, []).append(c)
+    return grid
+
+def _near_in_grid(grid, pt, cell, radius):
+    ki, kj = int(pt[0] // cell), int(pt[1] // cell)
+    r2 = radius * radius
+    for i in range(ki - 1, ki + 2):
+        for j in range(kj - 1, kj + 2):
+            for c in grid.get((i, j), ()):
+                if (pt[0]-c[0])**2 + (pt[1]-c[1])**2 < r2:
+                    return True
+    return False
+
 def generate_rooftop_heat(buildings, industry, green, aqi):
 
-    MAX_POINTS = 1200   # 🔥 PERFORMANCE LIMIT
     heat_points = []
 
     if not buildings:
         return heat_points
 
-    # polygon center helper
-    def center(poly):
-        lat = sum(p[0] for p in poly) / len(poly)
-        lon = sum(p[1] for p in poly) / len(poly)
-        return lat, lon
+    RADIUS = 0.01
+    industry_grid = _build_grid(industry, RADIUS)
+    green_grid    = _build_grid(green, RADIUS)
+    aqi_score = min((aqi or 80) / 300, 0.3)
 
-    def dist(a,b):
-        return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    # 🎯 Every building in the box gets a rooftop score — no sampling
+    for b in buildings:
+        if not b:
+            continue
+        b_center = _poly_center(b)
 
-    # 🎯 STEP 1 — Sample buildings (VERY IMPORTANT)
-    step = max(1, int(len(buildings) / MAX_POINTS))
-    sampled_buildings = buildings[::step]
-
-    for b in sampled_buildings:
-        b_center = center(b)
-
-        score = 0.4
-
-        # AQI factor
-        score += min((aqi or 80) / 300, 0.3)
+        score = 0.4 + aqi_score
 
         # near industry → more rooftop needed
-        for ind in industry[:80]:  # limit search
-            if dist(b_center, center(ind)) < 0.01:
-                score += 0.2
-                break
+        if _near_in_grid(industry_grid, b_center, RADIUS, RADIUS):
+            score += 0.2
 
         # near green → less need
-        for g in green[:80]:
-            if dist(b_center, center(g)) < 0.01:
-                score -= 0.2
-                break
+        if _near_in_grid(green_grid, b_center, RADIUS, RADIUS):
+            score -= 0.2
 
         score = max(0.1, min(score, 1.0))
 
@@ -2586,44 +2599,32 @@ def generate_rooftop_heat(buildings, industry, green, aqi):
 
 def generate_ground_heat(layers, aqi):
 
-    MAX_POINTS = 800
     heat_points = []
 
-    buildings = layers["buildings"]
     green = layers["green"]
     water = layers["water"]
     industry = layers["industry"]
 
-    # helper
-    def center(poly):
-        lat = sum(p[0] for p in poly) / len(poly)
-        lon = sum(p[1] for p in poly) / len(poly)
-        return lat, lon
+    RADIUS = 0.02
+    industry_grid = _build_grid(industry, RADIUS)
+    water_grid    = _build_grid(water, RADIUS)
+    aqi_score = min((aqi or 80) / 300, 0.3)
 
-    def dist(a,b):
-        return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    # Candidate areas = ALL green polygons — no thinning, no point cap
+    for poly in green:
 
-    # Candidate areas = green edges + empty spaces
-    candidates = layers["green"][::3]  # reduce density
-
-    for poly in candidates[:MAX_POINTS]:
-
-        c = center(poly)
-        score = 0.5
+        if not poly:
+            continue
+        c = _poly_center(poly)
+        score = 0.5 + aqi_score
 
         # near industry = more plantation needed
-        for ind in industry[:50]:
-            if dist(c, center(ind)) < 0.02:
-                score += 0.2
-                break
+        if _near_in_grid(industry_grid, c, RADIUS, RADIUS):
+            score += 0.2
 
         # near water = less needed
-        for w in water[:50]:
-            if dist(c, center(w)) < 0.02:
-                score -= 0.2
-                break
-
-        score += min((aqi or 80) / 300, 0.3)
+        if _near_in_grid(water_grid, c, RADIUS, RADIUS):
+            score -= 0.2
 
         score = max(0.1, min(score, 1.0))
 
