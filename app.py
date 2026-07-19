@@ -36,6 +36,11 @@ HEADERS = {
 }
 WAQI_TOKEN = os.environ.get("WAQI_TOKEN", "") # free public token
 
+# Overpass can be slow on home networks — default 25s locally; hosted
+# deployments with a 30s request limit (e.g. Render/gunicorn) should set
+# OVERPASS_TIMEOUT=8 in their environment
+OVERPASS_TIMEOUT = int(os.environ.get("OVERPASS_TIMEOUT", 25))
+
 # -----------------------------
 # SIMPLE MEMORY CACHE SYSTEM
 # -----------------------------
@@ -709,7 +714,7 @@ def get_osm_features_bbox(n, s, e, w):
                 endpoint,
                 data={"data": query},
                 headers=OVERPASS_HEADERS,
-                timeout=8  # ✅ FIX 1: was 28 — total max ~30s fits in gunicorn window
+                timeout=OVERPASS_TIMEOUT
             )
             ct = raw.headers.get("content-type", "")
             text = raw.text.strip()
