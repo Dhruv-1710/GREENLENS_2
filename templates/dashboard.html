@@ -764,6 +764,22 @@ function ensureHeatOnTop(layer){
     if(pane && layer._canvas.parentNode !== pane) pane.appendChild(layer._canvas);
 }
 
+// The stock leaflet.heat onRemove hardcodes overlayPane.removeChild(canvas),
+// which throws NotFoundError after ensureHeatOnTop() re-parents the canvas
+// into heatPane. Replace it with a version that detaches from the canvas's
+// ACTUAL parent, wherever it lives.
+if(window.L && L.HeatLayer){
+    L.HeatLayer.prototype.onRemove = function (m) {
+        if(this._canvas && this._canvas.parentNode){
+            this._canvas.parentNode.removeChild(this._canvas);
+        }
+        m.off('moveend', this._reset, this);
+        if (m.options.zoomAnimation) {
+            m.off('zoomanim', this._animateZoom, this);
+        }
+    };
+}
+
 let drawControl = new L.Control.Draw({
     draw:{
         rectangle:{ shapeOptions:{ color:'#10b981', weight:2 } },
