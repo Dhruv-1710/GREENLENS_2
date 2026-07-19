@@ -1065,7 +1065,13 @@ def home():
 
 @app.route("/dashboard")
 def dashboard():
-    return render_template("dashboard.html")
+    # Tile-layer keys are injected from env at render time (never committed to
+    # git). WAQI falls back to its public "demo" token when no token is set.
+    return render_template(
+        "dashboard.html",
+        waqi_token=WAQI_TOKEN or "demo",
+        weather_key=WEATHER_KEY
+    )
 
 @app.route("/community")
 def social():

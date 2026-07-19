@@ -692,7 +692,7 @@ HTMLCanvasElement.prototype.getContext = function(type, attrs){
 };
 
 let aqiCloud = L.tileLayer(
-    "https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo",
+    "https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token={{ waqi_token }}",
     { opacity:0.6, maxZoom:19, pane:"weatherPane" }
 );
 
@@ -959,18 +959,17 @@ async function loadRainRadarLayer(){
         const latest = past[past.length - 1];
         const tileURL = `https://tilecache.rainviewer.com/v2/radar/${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
         if(rainLayer) map.removeLayer(rainLayer);
-        rainLayer = L.tileLayer(tileURL,{ opacity:0.85, maxZoom:19 }).addTo(map);
-        rainLayer.getContainer && rainLayer.getContainer() && (rainLayer.getContainer().style.zIndex='9999');
+        rainLayer = L.tileLayer(tileURL,{ opacity:0.85, maxZoom:19, pane:"weatherPane" }).addTo(map);
         console.log("✅ Rain radar loaded:", tileURL);
     } catch(e) { console.log("Rain radar error:", e); }
 }
 
 function createWindCloudLayers(){
-    // Use OpenWeatherMap with actual API key from env, fallback to just rain radar
-    const owmKey = ""; // Will use rain radar only if no key
+    // OpenWeatherMap key injected from server env; rain radar only if not set
+    const owmKey = "{{ weather_key }}";
     if(owmKey){
-        windLayer  = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`,   { opacity:0.6, maxZoom:19 });
-        cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`, { opacity:0.6, maxZoom:19 });
+        windLayer  = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`,   { opacity:0.6, maxZoom:19, pane:"weatherPane" });
+        cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`, { opacity:0.6, maxZoom:19, pane:"weatherPane" });
     } else {
         // No API key — an empty-URL tile layer would request the page URL
         // for every tile, so create nothing and rely on the rain radar
