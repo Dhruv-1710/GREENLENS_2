@@ -416,7 +416,7 @@ async function checkAuth() {
 
     syncUser();
     checkAdmin();
-    loadPosts();
+    await loadPosts();
     loadEvents();
     loadNotifications();
     loadUnreadCount();
@@ -426,6 +426,9 @@ async function checkAuth() {
     setInterval(()=>loadPosts(false), 3000);
 
     loadMiniProfile();
+
+    // opened via a notification link (…/community#post-N) → jump to that post
+    if(location.hash.startsWith("#post-")) scrollToHashPost();
 }
 
 function formatTime(ts) {
@@ -861,12 +864,12 @@ async function loadNotificationsDropdown(){
 
         if(n.type==="connect_request"){
             text="sent you a connection request 🤝";
-            clickAction=`openProfileFromNotification('${n.sender}')`;
+            clickAction=`openProfileFromNotification('${n.sender_uid}')`;
         }
 
         if(n.type==="connect_accept"){
             text="accepted your connection 🎉";
-            clickAction=`openProfileFromNotification('${n.sender}')`;
+            clickAction=`openProfileFromNotification('${n.sender_uid}')`;
         }
 
         const unreadClass = !n.is_read ? "unread-notif" : "";
@@ -938,12 +941,12 @@ async function toggleNotif(){
 
     if(n.type==="connect_request"){
         text = "sent you a connection request 🤝";
-        clickAction = `openProfileFromNotification('${n.sender}')`;
+        clickAction = `openProfileFromNotification('${n.sender_uid}')`;
     }
 
     if(n.type==="connect_accept"){
         text = "accepted your connection 🎉";
-        clickAction = `openProfileFromNotification('${n.sender}')`;
+        clickAction = `openProfileFromNotification('${n.sender_uid}')`;
     }
 
     box.innerHTML += `
@@ -1178,12 +1181,41 @@ https://wa.me/?text=${encodeURIComponent(text+" "+url)}
 }
 
 function openProfileFromNotification(uid){
+    if(!uid) return;
     window.location.href = "/profile.html?uid=" + uid;
 }
 
 function openPostFromNotification(postId){
     if(!postId) return;
-    window.location.href = "/community#post-" + postId;
+    // already on the community page → jump straight to the post
+    if(location.pathname === "/community" || location.pathname.endsWith("community")){
+        toggleNotif();                 // close the dropdown
+        location.hash = "post-" + postId;
+        scrollToHashPost();
+    } else {
+        window.location.href = "/community#post-" + postId;
+    }
+}
+
+// Scroll to and briefly highlight the post named in the URL hash (#post-N).
+// Loads more of the feed if the post isn't on screen yet.
+async function scrollToHashPost(tries){
+    tries = tries || 0;
+    const m = (location.hash || "").match(/post-(\d+)/);
+    if(!m) return;
+    const el = document.getElementById("post-" + m[1]);
+    if(el){
+        el.scrollIntoView({behavior:"smooth", block:"center"});
+        el.style.transition = "box-shadow .3s, background .3s";
+        el.style.boxShadow  = "0 0 0 3px #10b981";
+        setTimeout(()=>{ el.style.boxShadow = ""; }, 2200);
+        return;
+    }
+    // not loaded yet → pull more pages, then retry (cap the attempts)
+    if(hasMore && tries < 12){
+        await loadPosts(false);
+        setTimeout(()=>scrollToHashPost(tries + 1), 250);
+    }
 }
 
 

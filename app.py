@@ -1364,17 +1364,27 @@ def create_event():
         return jsonify({"error":"admin only"}), 403
 
     # 3️⃣ Get form data
-    title = request.form.get("title")
-    location = request.form.get("location")
-    description = request.form.get("description")
-    date_str = request.form.get("date")
+    title = (request.form.get("title") or "").strip()
+    location = (request.form.get("location") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    date_str = (request.form.get("date") or "").strip()
     image = request.files.get("image")
 
-    if not title or not location or not description or not date_str:
-        return jsonify({"error":"missing fields"}), 400
+    # Tell the admin exactly which field is missing (instead of a vague 400)
+    missing = [name for name, val in
+               [("title", title), ("location", location),
+                ("description", description), ("date", date_str)] if not val]
+    if missing:
+        return jsonify({"error": "Please fill: " + ", ".join(missing)}), 400
 
-    # 4️⃣ Convert date string → datetime
-    event_date = datetime.fromisoformat(date_str)
+    # 4️⃣ Convert date string → datetime (accepts "YYYY-MM-DD" from <input type=date>)
+    try:
+        event_date = datetime.fromisoformat(date_str)
+    except ValueError:
+        try:
+            event_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "Invalid date format"}), 400
 
     # 5️⃣ Handle optional image upload
     image_path = None
@@ -1534,6 +1544,56 @@ def admin_delete_post(pid):
     db.session.commit()
 
     return jsonify({"status":"deleted"})
+
+# ======================
+# ADMIN DELETE USER (cascade everything)
+# ======================
+
+@app.route("/api/admin/users/delete/<target_uid>", methods=["DELETE"])
+def admin_delete_user(target_uid):
+
+    uid = session.get("uid")
+    if not uid:
+        return jsonify({"error":"login required"}), 401
+
+    admin = User.query.get(uid)
+    if not admin or not admin.is_admin:
+        return jsonify({"error":"admin only"}), 403
+
+    target = User.query.get(target_uid)
+    if not target:
+        return jsonify({"error":"user not found"}), 404
+
+    # An admin can't delete their own account here (avoid locking out)
+    if target.uid == uid:
+        return jsonify({"error":"cannot delete your own admin account"}), 400
+
+    # Remove this user's posts and everything attached to those posts
+    user_posts = Post.query.filter_by(uid=target_uid).all()
+    for p in user_posts:
+        Comment.query.filter_by(post_id=p.id).delete()
+        Like.query.filter_by(post_id=p.id).delete()
+        db.session.delete(p)
+
+    # Remove the user's own comments / likes elsewhere
+    Comment.query.filter_by(uid=target_uid).delete()
+    Like.query.filter_by(uid=target_uid).delete()
+
+    # Connections, notifications, messages (both directions)
+    Connection.query.filter(
+        (Connection.sender_uid == target_uid) | (Connection.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+    Notification.query.filter(
+        (Notification.sender_uid == target_uid) | (Notification.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+    Message.query.filter(
+        (Message.sender_uid == target_uid) | (Message.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+
+    db.session.delete(target)
+    db.session.commit()
+
+    return jsonify({"status":"user deleted"})
 
 # ======================
 # POSTS APIs
@@ -2162,6 +2222,7 @@ def get_notifications(uid):
         result.append({
             "id": n.id,
             "sender": sender.name if sender else "User",
+            "sender_uid": n.sender_uid,   # so clicks can open the sender's profile
             "type": n.type,
             "post_id": n.post_id,
             "timestamp": n.timestamp.isoformat(),
