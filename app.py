@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, redirect, make_response
+from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from sqlalchemy import case
@@ -1080,6 +1081,22 @@ def create_notification(receiver, sender, ntype, post_id=None):
 # PAGE ROUTES
 # ======================
 
+# Server-side gate for community pages. Client-side JS checks alone let the
+# browser's back/forward cache show a protected page without re-running the
+# redirect — so we block at the server AND send no-store so nothing sensitive
+# is served from cache after logout. Dashboard + landing stay public.
+def page_login_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not session.get("uid"):
+            return redirect("/auth")
+        resp = make_response(view(*args, **kwargs))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
+    return wrapper
+
 @app.route("/")
 def home():
     return render_template("landing.html")
@@ -1095,26 +1112,34 @@ def dashboard():
     )
 
 @app.route("/community")
+@page_login_required
 def social():
     return render_template("social.html")
 
 @app.route("/auth")
 def auth():
+    # already logged in → skip the auth page
+    if session.get("uid"):
+        return redirect("/community")
     return render_template("auth.html")
 
 @app.route("/profile.html")
+@page_login_required
 def profile():
     return render_template("profile.html")
 
 @app.route("/messages.html")
+@page_login_required
 def messages_page():
     return render_template("messages.html")
 
 @app.route("/inbox.html")
+@page_login_required
 def inbox_page():
     return render_template("inbox.html")
 
 @app.route("/admin.html")
+@page_login_required
 def admin_page():
     return render_template("admin.html")
 
