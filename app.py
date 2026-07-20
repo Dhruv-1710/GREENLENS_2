@@ -945,9 +945,21 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///greenlens.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
-UPLOAD_FOLDER = "static/uploads"
+# Absolute path tied to where app.py lives — NOT the current working directory.
+# Saving to a CWD-relative "static/uploads" while Flask serves from
+# <app_root>/static caused uploaded images to 404 when the app was started
+# from a different folder.
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+from flask import send_from_directory
+
+@app.route("/static/uploads/<path:filename>")
+def serve_upload(filename):
+    # Explicit route so uploads always serve from the same absolute folder
+    # they were saved to, regardless of the process working directory.
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
