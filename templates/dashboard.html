@@ -224,6 +224,32 @@
 
         /* loading spinner */
         .loading-text{ color:#9ca3af; padding:12px; font-size:13px; }
+
+        /* 🌍 plantation zone tiles */
+        .zone-grid{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+            gap:14px;
+            margin-top:12px;
+        }
+        .zone-tile{
+            background:var(--bg-soft);
+            border:1px solid var(--border-soft);
+            border-radius:12px;
+            padding:16px 14px;
+            text-align:center;
+        }
+        .zone-tile .zt-num{ font-size:26px; font-weight:700; color:var(--accent); }
+        .zone-tile .zt-label{ font-size:12px; color:#9ca3af; margin-top:4px; }
+        .zone-total{
+            margin-top:16px;
+            padding:12px 16px;
+            background:rgba(16,185,129,0.12);
+            border:1px solid rgba(16,185,129,0.3);
+            border-radius:12px;
+            font-size:15px;
+        }
+        .rank-note{ color:#9ca3af; font-size:11px; padding-top:10px; }
     </style>
 </head>
 <body>
@@ -251,10 +277,6 @@
 <div class="topbar">
     <input id="search" placeholder="Search City (e.g. Delhi)" onkeypress="if(event.key==='Enter') searchCity()">
     <button onclick="searchCity()">Search</button>
-    <button onclick="changeYear('clear')">LIVE</button>
-    <button onclick="changeYear('2016')">2016</button>
-    <button onclick="changeYear('2020')">2020</button>
-    <button onclick="changeYear('2024')">2024</button>
     <button id="btn-thermal" class="mode-btn" onclick="setMode('thermal')">🌡 Heat Island</button>
     <button id="btn-urban" class="mode-btn" onclick="setMode('urban')">🏙 Urban Growth</button>
     <button id="btn-plantation" class="mode-btn" onclick="setMode('plantation')">🌳 Plantation</button>
@@ -312,8 +334,8 @@
                     <div id="rooftopSpecies"></div>
                 </div>
             </div>
-            <div class="chart-card" style="margin-top:30px">
-                <h3>🌍 Plantation Zones</h3>
+            <div class="panel" style="margin-top:30px">
+                <h3 style="margin-top:0">🌍 Plantation Zones</h3>
                 <div id="zonePlan"></div>
             </div>
         </section>
@@ -357,9 +379,9 @@
         <section class="dash-section">
             <h2>Global Pollution Rankings</h2>
             <div class="ranking-tabs">
-                <button onclick="loadGlobalRank('live')">Live</button>
-                <button onclick="loadGlobalRank('polluted')">Most Polluted</button>
-                <button onclick="loadGlobalRank('clean')">Cleanest</button>
+                <button onclick="loadGlobalRank('live')">🌍 Global Overview</button>
+                <button onclick="loadGlobalRank('polluted')">🔴 Most Polluted</button>
+                <button onclick="loadGlobalRank('clean')">🟢 Cleanest</button>
             </div>
             <div id="rankingTable"></div>
         </section>
@@ -380,8 +402,11 @@
                 🌲 Trees needed: <b id="impactTrees">--</b><br>
                 ❄ Cooling: <b id="impactCooling">--</b> °C<br>
                 🌫 AQI Improvement: <b id="impactAQI">--</b><br>
-                🌍 CO₂ Absorption: <b id="impactCO2">--</b> tons/year
+                🌍 CO₂ Absorption: <b id="impactCO2">--</b> tons/year<br>
+                💰 Planting cost: <b id="impactCost">--</b><br>
+                🔧 Care (first 3 yrs): <b id="impactMaint">--</b>/year
             </div>
+            <div id="impactTimeline" style="margin-top:10px;font-size:12px;color:#9ca3af"></div>
         </div>
         <div class="panel">
             <h3>🧠 Recommendations</h3>
@@ -390,10 +415,11 @@
         <div class="panel">
             <h3>🏙 Forecast</h3>
             <div id="forecastBox">
-                2019: <b id="f2019">--</b><br>
-                2024: <b id="f2024">--</b><br>
-                2027: <b id="f2027">--</b><br>
-                2030: <b id="f2030">--</b>
+                2019: <b id="f2019">--</b>% built-up<br>
+                2024: <b id="f2024">--</b>% built-up<br>
+                2027: <b id="f2027">--</b>% (projected)<br>
+                2030: <b id="f2030">--</b>% (projected)
+                <div id="fRef" style="font-size:11px;color:#9ca3af;margin-top:6px"></div>
             </div>
         </div>
     </div>
@@ -403,23 +429,6 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
-<script>
-// Fix leaflet-heat canvas always rendering behind satellite tiles
-// Patch: force heatmap canvas to always be on top
-if(window.L && L.HeatLayer){
-    const _origOnAdd = L.HeatLayer.prototype.onAdd;
-    L.HeatLayer.prototype.onAdd = function(map){
-        _origOnAdd.call(this, map);
-        if(this._canvas){
-            // Raise z-index only — the canvas must stay inside its Leaflet pane,
-            // otherwise it stops following the map's pan/zoom transforms
-            this._canvas.style.zIndex = '9999';
-            this._canvas.style.pointerEvents = 'none';
-        }
-        return this;
-    };
-}
-</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-side-by-side@2.2.0/leaflet-side-by-side.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
@@ -680,6 +689,11 @@ map.createPane("satellitePane"); map.getPane("satellitePane").style.zIndex = 200
 map.createPane("ndviPane");      map.getPane("ndviPane").style.zIndex = 420;
 map.createPane("uiPane");        map.getPane("uiPane").style.zIndex = 500;
 map.createPane("infraPane");     map.getPane("infraPane").style.zIndex = 550;
+// Dedicated pane for ALL heatmap canvases — above satellite (200), NDVI (420),
+// vector overlays (500/550) so heat is never hidden behind other layers.
+// The canvas stays inside a Leaflet pane so it pans/zooms with the map.
+map.createPane("heatPane");      map.getPane("heatPane").style.zIndex = 650;
+map.getPane("heatPane").style.pointerEvents = "none";
 map.createPane("weatherPane");   map.getPane("weatherPane").style.zIndex = 999;
 
 let satelliteNow = L.tileLayer(
@@ -704,7 +718,7 @@ HTMLCanvasElement.prototype.getContext = function(type, attrs){
 };
 
 let aqiCloud = L.tileLayer(
-    "https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo",
+    "https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token={{ waqi_token }}",
     { opacity:0.6, maxZoom:19, pane:"weatherPane" }
 );
 
@@ -722,19 +736,49 @@ let currentBBox = null;
 let sideBySideControl = null;
 
 let rooftopHeat = L.heatLayer([], {
-    radius:25, blur:20, maxZoom:17,
+    pane:"heatPane", radius:25, blur:20, maxZoom:17,
     gradient:{ 0.2:'#3b82f6', 0.6:'#60a5fa', 1.0:'#1d4ed8' }
 });
 
 let newInfraHeat = L.heatLayer([], {
-    pane:"infraPane", radius:20, blur:15,
+    pane:"heatPane", radius:20, blur:15,
     gradient:{ 0.4:'#f97316', 1.0:'#dc2626' }
 });
 
 let groundHeat = L.heatLayer([], {
-    radius:25, blur:20, maxZoom:17,
+    pane:"heatPane", radius:25, blur:20, maxZoom:17,
     gradient:{ 0.2:'#22c55e', 0.6:'#4ade80', 1.0:'#065f46' }
 });
+
+// Keep heat points inside the selected box — [lat, lon, intensity] triplets
+function clipHeatPoints(points, n, s, e, w){
+    return points.filter(p => p[0] >= s && p[0] <= n && p[1] >= w && p[1] <= e);
+}
+
+// Safety net: some leaflet.heat builds ignore the pane option and park the
+// canvas in overlayPane (z 400), where NDVI tiles (z 420) can cover it.
+// Move the canvas into heatPane so heat is ALWAYS visible on top.
+function ensureHeatOnTop(layer){
+    if(!layer || !layer._canvas) return;
+    const pane = map.getPane("heatPane");
+    if(pane && layer._canvas.parentNode !== pane) pane.appendChild(layer._canvas);
+}
+
+// The stock leaflet.heat onRemove hardcodes overlayPane.removeChild(canvas),
+// which throws NotFoundError after ensureHeatOnTop() re-parents the canvas
+// into heatPane. Replace it with a version that detaches from the canvas's
+// ACTUAL parent, wherever it lives.
+if(window.L && L.HeatLayer){
+    L.HeatLayer.prototype.onRemove = function (m) {
+        if(this._canvas && this._canvas.parentNode){
+            this._canvas.parentNode.removeChild(this._canvas);
+        }
+        m.off('moveend', this._reset, this);
+        if (m.options.zoomAnimation) {
+            m.off('zoomanim', this._animateZoom, this);
+        }
+    };
+}
 
 let drawControl = new L.Control.Draw({
     draw:{
@@ -756,7 +800,7 @@ function jumpToCity(key) {
     // show hardcoded data instantly
     showHardcodedCity(c);
     // then fetch real API data in background
-    fetchCityDataBackground(c.lat, c.lon, c.name);
+    fetchCityDataBackground(c.lat, c.lon, c.name, key);
 }
 
 function showHardcodedCity(c) {
@@ -804,18 +848,19 @@ function createCityCardHTML(city, label) {
 }
 
 // background fetch — doesn't block UI
-async function fetchCityDataBackground(lat, lon, cityName) {
+async function fetchCityDataBackground(lat, lon, cityName, cityKey) {
+    // Set currentBBox immediately so Heat Island / Plantation / Urban Growth
+    // work right after a city search, without waiting for the slow /analyze call
+    currentBBox = {
+        n: lat+0.02, s: lat-0.02,
+        e: lon+0.02, w: lon-0.02
+    };
     try {
         const data = await fetch(`/analyze?lat=${lat}&lon=${lon}`).then(r=>r.json());
         updateMap(data); // this also sets lastAnalyzeData now
-        // Also set currentBBox so Heat Island / Plantation buttons work after city search
-        currentBBox = {
-            n: lat+0.02, s: lat-0.02,
-            e: lon+0.02, w: lon-0.02
-        };
         // load charts lazily
         setTimeout(() => loadRealCharts(lat, lon), 500);
-        setTimeout(() => loadColonies(lat, lon), 800);
+        setTimeout(() => loadColonies(lat, lon, cityKey), 800);
         setTimeout(() => loadEnvironmentContext(lat, lon), 1200);
     } catch(e) {
         console.log("Background fetch error:", e);
@@ -829,6 +874,11 @@ const analyzeCache = new Map();
 
 map.on(L.Draw.Event.CREATED, async function(e) {
     currentMode = "analysis";
+    // Leaving a mode via drawing must also remove its mask/legend and
+    // un-highlight the mode button, then bring the analysis layers back
+    clearModes();
+    restoreAnalysisLayers();
+    highlightActiveButton(null);
     drawLayer.clearLayers();
     const layer = e.layer;
     drawLayer.addLayer(layer);
@@ -960,22 +1010,22 @@ async function loadRainRadarLayer(){
         const latest = past[past.length - 1];
         const tileURL = `https://tilecache.rainviewer.com/v2/radar/${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
         if(rainLayer) map.removeLayer(rainLayer);
-        rainLayer = L.tileLayer(tileURL,{ opacity:0.85, maxZoom:19 }).addTo(map);
-        rainLayer.getContainer && rainLayer.getContainer() && (rainLayer.getContainer().style.zIndex='9999');
+        rainLayer = L.tileLayer(tileURL,{ opacity:0.85, maxZoom:19, pane:"weatherPane" }).addTo(map);
         console.log("✅ Rain radar loaded:", tileURL);
     } catch(e) { console.log("Rain radar error:", e); }
 }
 
 function createWindCloudLayers(){
-    // Use OpenWeatherMap with actual API key from env, fallback to just rain radar
-    const owmKey = ""; // Will use rain radar only if no key
+    // OpenWeatherMap key injected from server env; rain radar only if not set
+    const owmKey = "{{ weather_key }}";
     if(owmKey){
-        windLayer  = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`,   { opacity:0.6, maxZoom:19 });
-        cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`, { opacity:0.6, maxZoom:19 });
+        windLayer  = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`,   { opacity:0.6, maxZoom:19, pane:"weatherPane" });
+        cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`, { opacity:0.6, maxZoom:19, pane:"weatherPane" });
     } else {
-        // Fallback: use windy.com iframe approach won't work, just use rain radar
-        windLayer  = L.tileLayer("", { opacity:0 }); // empty layer
-        cloudLayer = L.tileLayer("", { opacity:0 }); // empty layer
+        // No API key — an empty-URL tile layer would request the page URL
+        // for every tile, so create nothing and rely on the rain radar
+        windLayer  = null;
+        cloudLayer = null;
     }
 }
 
@@ -995,7 +1045,8 @@ async function startWeatherMode(){
     map.setView([20,0],2);
     await loadRainRadarLayer();
     createWindCloudLayers();
-    windLayer.addTo(map); cloudLayer.addTo(map);
+    if(windLayer)  windLayer.addTo(map);
+    if(cloudLayer) cloudLayer.addTo(map);
     addWeatherLegend();
 }
 
@@ -1003,7 +1054,13 @@ async function startWeatherMode(){
 // MODE MANAGEMENT
 // ============================================================
 function setMode(mode){
-    if(currentMode===mode){ currentMode="analysis"; clearModes(); highlightActiveButton(null); return; }
+    if(currentMode===mode){ currentMode="analysis"; clearModes(); restoreAnalysisLayers(); highlightActiveButton(null); return; }
+    // Modes that need an area must be checked BEFORE wiping the map,
+    // otherwise the alert leaves an empty map and a stuck red button
+    if((mode==="thermal"||mode==="plantation"||mode==="urban") && !currentBBox && !drawnRectangle){
+        alert("Please search a city or draw a rectangle first");
+        return;
+    }
     currentMode=mode; clearModes();
     if(mode==="thermal")    startThermalMode();
     if(mode==="plantation") startPlantationMode();
@@ -1015,12 +1072,26 @@ function setMode(mode){
 function clearModes(){
     if(window.thermalLayer)   { map.removeLayer(window.thermalLayer); window.thermalLayer=null; }
     if(window.plantationTile) { map.removeLayer(window.plantationTile); window.plantationTile=null; }
+    if(thermalMask)  { map.removeLayer(thermalMask); thermalMask=null; }
+    if(thermalLegend){ map.removeControl(thermalLegend); thermalLegend=null; }
+    if(plantationLegend){ map.removeControl(plantationLegend); plantationLegend=null; }
     if(rainLayer)    { map.removeLayer(rainLayer); rainLayer=null; }
     if(windLayer)    { map.removeLayer(windLayer); windLayer=null; }
     if(cloudLayer)   { map.removeLayer(cloudLayer); cloudLayer=null; }
     if(weatherLegend){ map.removeControl(weatherLegend); weatherLegend=null; }
     if(urbanHeatLayer){ map.removeLayer(urbanHeatLayer); urbanHeatLayer=null; }
     if(urbanLegend)  { map.removeControl(urbanLegend); urbanLegend=null; }
+}
+
+// Re-add the OSM analysis layers removed by turnOffAnalysisLayers()
+function restoreAnalysisLayers(){
+    [roadLayer, industryLayer, waterLayer, greenLayer, buildingLayer].forEach(l=>{
+        if(!map.hasLayer(l)) map.addLayer(l);
+    });
+    if(rooftopHeat._latlngs && rooftopHeat._latlngs.length && !map.hasLayer(rooftopHeat)){
+        rooftopHeat.addTo(map);
+    }
+    if(ndviLayer && !map.hasLayer(ndviLayer)) ndviLayer.addTo(map);
 }
 
 function highlightActiveButton(mode){
@@ -1041,6 +1112,13 @@ async function loadImpact(n,s,e,w){
         document.getElementById("impactCooling").innerText = "-"+(data.expected_cooling_c||0);
         document.getElementById("impactAQI").innerText     = "-"+(data.aqi_improvement||0)+" points";
         document.getElementById("impactCO2").innerText     = data.co2_absorption_tons_per_year||0;
+        document.getElementById("impactCost").innerText    = "$"+(data.planting_cost_usd||0).toLocaleString();
+        document.getElementById("impactMaint").innerText   = "$"+(data.annual_maintenance_usd||0).toLocaleString();
+        const tl = data.benefit_timeline||[];
+        document.getElementById("impactTimeline").innerHTML = tl.length
+            ? "<b style='color:#e5e7eb'>⏳ When will benefits arrive?</b>" +
+              tl.map(t=>`<div style="margin-top:6px"><b style="color:#22d3ee">${t.period}:</b> ${t.benefit}</div>`).join("")
+            : "";
     } catch(e) { console.log("Impact error:", e); }
 }
 
@@ -1064,6 +1142,9 @@ async function loadForecast(n,s,e,w){
         document.getElementById("f2024").innerText = data["2024"]||"--";
         document.getElementById("f2027").innerText = data["f2027"]||data["2027"]||"--";
         document.getElementById("f2030").innerText = data["f2030"]||data["2030"]||"--";
+        document.getElementById("fRef").innerText = data.reference_city
+            ? `📊 Estimate based on ${data.reference_city} urban-growth trend`
+            : "";
     } catch(e) { console.log("Forecast error:", e); }
 }
 
@@ -1103,12 +1184,15 @@ function updateMap(data) {
     (data.layers.buildings||[]).forEach(coords=>{ L.polygon(coords,{pane:"uiPane",color:"#3b82f6",fillColor:"#3b82f6",fillOpacity:0.15,weight:1}).addTo(buildingLayer); });
 
     if(currentMode==="analysis" && data.rooftop_heat && data.rooftop_heat.length){
-        const heatPoints = data.rooftop_heat.map(p=>[p.lat,p.lon,p.intensity]);
+        let heatPoints = data.rooftop_heat.map(p=>[p.lat,p.lon,p.intensity]);
+        // Backend analyzes a buffered bbox — clip so heat stays inside the box
+        if(currentBBox) heatPoints = clipHeatPoints(heatPoints, currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w);
         if(!map.hasLayer(rooftopHeat)) rooftopHeat.addTo(map);
         rooftopHeat.setLatLngs(heatPoints);
+        ensureHeatOnTop(rooftopHeat);
     }
 
-    if(data.ndvi_tile){
+    if(data.ndvi_tile && currentMode==="analysis"){
         if(ndviLayer) map.removeLayer(ndviLayer);
         ndviLayer = L.tileLayer(data.ndvi_tile,{opacity:0.9,maxZoom:19,pane:"ndviPane"}).addTo(map);
     }
@@ -1125,8 +1209,20 @@ function getAQIColor(aqi){
 // ============================================================
 // HEALTH PANEL
 // ============================================================
+// US-EPA AQI → PM2.5 concentration (µg/m³), piecewise-linear inverse
+function aqiToPM25(aqi){
+    const bp=[[0,50,0,12],[51,100,12.1,35.4],[101,150,35.5,55.4],
+              [151,200,55.5,150.4],[201,300,150.5,250.4],[301,500,250.5,500.4]];
+    for(const [al,ah,cl,ch] of bp){
+        if(aqi<=ah) return cl + (aqi-Math.max(al,0))*(ch-cl)/((ah-Math.max(al,0))||1);
+    }
+    return 500;
+}
+
 function updateHealthPanel(aqi){
-    const cig = Math.round((aqi||0)/22);
+    // Berkeley Earth rule of thumb: 22 µg/m³ of PM2.5 ≈ 1 cigarette/day
+    const pm25 = aqiToPM25(aqi||0);
+    const cig = Math.round((pm25/22)*10)/10;
     let level, color, advice=[];
 
     if(aqi<=50){
@@ -1150,7 +1246,9 @@ function updateHealthPanel(aqi){
     }
 
     document.getElementById("cigaretteEq").innerHTML =
-        `<b style="color:${color}">${level}</b><br>Breathing ≈ <b>${cig}</b> cigarettes/day`;
+        `<b style="color:${color}">${level}</b><br>
+         Breathing here ≈ <b>${cig}</b> cigarettes/day
+         <span style="color:#9ca3af;font-size:12px">(PM2.5 ≈ ${Math.round(pm25)} µg/m³ · 22 µg/m³ ≈ 1 cigarette)</span>`;
 
     const box = document.querySelector(".health-actions");
     box.innerHTML="";
@@ -1194,27 +1292,6 @@ function toggleLayer(name){
 }
 
 // ============================================================
-// SATELLITE YEAR
-// ============================================================
-let historicalLayer=null;
-
-async function changeYear(year){
-    if(historicalLayer && map.hasLayer(historicalLayer)){ map.removeLayer(historicalLayer); historicalLayer=null; }
-    if(year==="clear"){ satelliteNow.addTo(map); satelliteNow.bringToBack(); return; }
-    try {
-        const res = await fetch(`/satellite/${year}`);
-        const data = await res.json();
-        if(!data.tile){
-            console.log("Historical satellite unavailable:", data.error || "no tile returned");
-            alert("Historical satellite imagery needs Earth Engine setup (works on the deployed server, not locally).");
-            return;
-        }
-        historicalLayer = L.tileLayer(data.tile,{opacity:0.7,maxZoom:19,pane:"ndviPane"}).addTo(map);
-        satelliteNow.addTo(map); satelliteNow.bringToBack();
-    } catch(e) { console.log("Satellite error:", e); }
-}
-
-// ============================================================
 // URBAN GROWTH
 // ============================================================
 async function loadNDVI(n,s,e,w){
@@ -1227,6 +1304,11 @@ async function loadNDVI(n,s,e,w){
     const res = await fetch(`/ndvi?n=${n}&s=${s}&e=${e}&w=${w}`);
     const data = await res.json();
 
+    if(!data.tile){
+        console.log("NDVI unavailable:", data.error || "no tile returned");
+        return;
+    }
+
     ndviLayer = L.tileLayer(data.tile,{
         opacity:1.0,
         maxZoom:19,
@@ -1235,30 +1317,31 @@ async function loadNDVI(n,s,e,w){
 }
 
 async function startUrbanGrowthView(){
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     // Ensure currentBBox is set from drawnRectangle if available
     if(drawnRectangle && !currentBBox){
         const b=drawnRectangle.getBounds();
         currentBBox={n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()};
     }
-    if(urbanHeatLayer){ map.removeLayer(urbanHeatLayer); urbanHeatLayer=null; if(urbanLegend){ map.removeControl(urbanLegend); urbanLegend=null; } return; }
+    // Red heat must be clearly visible — clear vector layers and NDVI tile
+    turnOffAnalysisLayers();
+    if(ndviLayer && map.hasLayer(ndviLayer)) map.removeLayer(ndviLayer);
     try {
         const bboxStr=`${currentBBox.w},${currentBBox.s},${currentBBox.e},${currentBBox.n}`;
         const res=await fetch(`/urban_growth?bbox=${bboxStr}`);
         const data=await res.json();
         if(!data.new_zones){ alert("No urban growth data found"); return; }
-        const heatPoints=data.new_zones.map(p=>[p[0],p[1],0.8]);
+        const heatPoints=clipHeatPoints(
+            data.new_zones.map(p=>[p[0],p[1],0.8]),
+            currentBBox.n, currentBBox.s, currentBBox.e, currentBBox.w
+        );
         urbanHeatLayer=L.heatLayer(heatPoints,{
-            radius:30, blur:25, maxZoom:19, minOpacity:0.6,
+            pane:"heatPane", radius:30, blur:25, maxZoom:19, minOpacity:0.6,
             gradient:{0.2:"#ffb347",0.5:"#ff7f50",0.75:"#ff0000",1.0:"#8b0000"}
         });
         urbanHeatLayer.addTo(map);
-        const _forceUrban = setInterval(()=>{
-            const canvases = document.querySelectorAll('.leaflet-heatmap-layer');
-            canvases.forEach(c=>{ c.style.zIndex='999'; c.style.opacity='1'; c.style.visibility='visible'; });
-            if(canvases.length) clearInterval(_forceUrban);
-        }, 100);
-        setTimeout(()=> clearInterval(_forceUrban), 3000);
+        ensureHeatOnTop(urbanHeatLayer);
+        map.fitBounds([[currentBBox.s,currentBBox.w],[currentBBox.n,currentBBox.e]]);
         urbanLegend=L.control({position:"bottomright"});
         urbanLegend.onAdd=function(){ const div=L.DomUtil.create("div","legend"); div.innerHTML=`<div style="background:white;padding:10px;border-radius:8px;font-size:12px;"><b>Urban Growth Risk</b><br><div style="height:10px;background:linear-gradient(to right,#ffb347,#ff0000,#8b0000);margin-top:6px"></div>Low → High</div>`; return div; };
         urbanLegend.addTo(map);
@@ -1269,9 +1352,9 @@ async function startUrbanGrowthView(){
 // THERMAL MODE
 // ============================================================
 async function startThermalMode(){
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     currentMode="thermal"; turnOffAnalysisLayers();
     if(sideBySideControl){ map.removeControl(sideBySideControl); sideBySideControl=null; }
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     if(window.thermalLayer){ map.removeLayer(window.thermalLayer); window.thermalLayer=null; }
     if(thermalMask){ map.removeLayer(thermalMask); thermalMask=null; }
     if(thermalLegend){ map.removeControl(thermalLegend); thermalLegend=null; }
@@ -1331,23 +1414,22 @@ async function startThermalMode(){
             console.log("✅ Thermal: using bbox grid fallback", heatPoints.length, "points");
         }
 
+        // Heat data may come from buffered layers — keep it inside the box
+        heatPoints = clipHeatPoints(heatPoints, north, south, east, west);
+
         if(heatPoints.length){
-            // EXACT same pattern as plantation which works
             window.thermalLayer = L.heatLayer(heatPoints,{
-                radius:38, blur:30, maxZoom:19, minOpacity:0.65,
+                pane:"heatPane", radius:38, blur:30, maxZoom:19, minOpacity:0.65,
                 gradient:{0.0:"#2c7bb6",0.3:"#abd9e9",0.5:"#ffffbf",0.75:"#fdae61",1.0:"#d7191c"}
             });
             window.thermalLayer.addTo(map);
-            setTimeout(()=>{
-                if(window.thermalLayer && window.thermalLayer._canvas){
-                    window.thermalLayer._canvas.style.zIndex='999';
-                    window.thermalLayer._canvas.style.opacity='1';
-                    window.thermalLayer._canvas.style.visibility='visible';
-                    window.thermalLayer._redraw();
-                }
-            }, 300);
+            ensureHeatOnTop(window.thermalLayer);
         }
     }
+    // Thermal overlay must not hide under the NDVI tile
+    if(ndviLayer && map.hasLayer(ndviLayer)) map.removeLayer(ndviLayer);
+    // Center the view on the analyzed box so the heat overlay is on screen
+    map.fitBounds([[south,west],[north,east]]);
     const worldCoords=[[-90,-180],[-90,180],[90,180],[90,-180]];
     // drawnRectangle can be null when the bbox came from a city search — fall back to currentBBox
     const holeCoords=[[south,west],[south,east],[north,east],[north,west]];
@@ -1377,8 +1459,8 @@ function turnOffAnalysisLayers(){
 let plantationMapCache=null, plantationMapBboxKey=null;
 
 async function startPlantationMode(){
+    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); currentMode="analysis"; return; }
     currentMode="plantation"; turnOffAnalysisLayers();
-    if(!currentBBox && !drawnRectangle){ alert("Please search a city or draw a rectangle first"); return; }
     const n = drawnRectangle ? drawnRectangle.getBounds().getNorth() : currentBBox.n;
     const s = drawnRectangle ? drawnRectangle.getBounds().getSouth() : currentBBox.s;
     const e = drawnRectangle ? drawnRectangle.getBounds().getEast()  : currentBBox.e;
@@ -1408,6 +1490,9 @@ async function startPlantationMode(){
     if(plantationLegend){ map.removeControl(plantationLegend); plantationLegend=null; }
     if(ndviLayer && map.hasLayer(ndviLayer)) map.removeLayer(ndviLayer);
 
+    // Center the view on the analyzed box so the overlay is on screen
+    map.fitBounds([[s,w],[n,e]]);
+
     // ✅ Only add the satellite overlay if GEE actually returned a tile
     if(data && data.tile){
         window.plantationTile=L.tileLayer(data.tile,{opacity:0.9,maxZoom:19,pane:"ndviPane"}).addTo(map);
@@ -1422,18 +1507,16 @@ async function startPlantationMode(){
     } else {
         // Fallback: use ground_heat points from last /analyze response (works locally)
         if(lastAnalyzeData && lastAnalyzeData.ground_heat && lastAnalyzeData.ground_heat.length){
-            const pts = lastAnalyzeData.ground_heat.map(p=>[p.lat, p.lon, p.intensity]);
+            const pts = clipHeatPoints(
+                lastAnalyzeData.ground_heat.map(p=>[p.lat, p.lon, p.intensity]),
+                n, s, e, w
+            );
             window.plantationTile = L.heatLayer(pts, {
-                radius:38, blur:30, maxZoom:19, minOpacity:0.65,
+                pane:"heatPane", radius:38, blur:30, maxZoom:19, minOpacity:0.65,
                 gradient:{0.0:"#90ee90", 0.3:"#66ff66", 0.6:"#00cc00", 1.0:"#006600"}
             });
             window.plantationTile.addTo(map);
-            setTimeout(()=>{
-                if(window.plantationTile && window.plantationTile._canvas){
-                    window.plantationTile._canvas.style.zIndex=999;
-                    window.plantationTile._canvas.style.opacity=1;
-                }
-            }, 200);
+            ensureHeatOnTop(window.plantationTile);
             plantationLegend=L.control({position:"bottomright"});
             plantationLegend.onAdd=function(){
                 const div=L.DomUtil.create("div");
@@ -1468,19 +1551,14 @@ async function startPlantationMode(){
                     for(let lo=w; lo<e; lo+=lonStep)
                         pts.push([la+Math.random()*latStep, lo+Math.random()*lonStep, 0.4+Math.random()*0.6]);
             }
+            pts = clipHeatPoints(pts, n, s, e, w);
             if(pts.length > 0){
                 window.plantationTile=L.heatLayer(pts,{
-                    radius:38, blur:30, maxZoom:19, minOpacity:0.65,
+                    pane:"heatPane", radius:38, blur:30, maxZoom:19, minOpacity:0.65,
                     gradient:{0.0:"#90ee90",0.3:"#66ff66",0.6:"#00cc00",1.0:"#006600"}
                 });
                 window.plantationTile.addTo(map);
-                // Force bring to front
-                setTimeout(()=>{
-                    if(window.plantationTile && window.plantationTile._canvas){
-                        window.plantationTile._canvas.style.zIndex = 999;
-                        window.plantationTile._canvas.style.opacity = 1;
-                    }
-                }, 200);
+                ensureHeatOnTop(window.plantationTile);
                 plantationLegend=L.control({position:"bottomright"});
                 plantationLegend.onAdd=function(){
                     const div=L.DomUtil.create("div");
@@ -1495,16 +1573,63 @@ async function startPlantationMode(){
 }
 
 // ============================================================
-// ✅ COLONIES TABLE — fixed (removed temp/humidity that backend doesn't send)
+// ✅ COLONIES TABLE — live WAQI stations first; if none available,
+// falls back to hardcoded per-city estimates (clearly labelled)
 // ============================================================
-async function loadColonies(lat, lon){
+const COLONY_DB = {
+    bhopal:   ["TT Nagar","Arera Colony","MP Nagar","Kolar Road","Bairagarh","Habibganj"],
+    delhi:    ["Anand Vihar","RK Puram","Dwarka","Rohini","ITO","Punjabi Bagh"],
+    mumbai:   ["Bandra","Andheri","Colaba","Worli","Borivali","Powai"],
+    london:   ["Westminster","Camden","Hackney","Greenwich","Kensington","Islington"],
+    nyc:      ["Manhattan","Brooklyn","Queens","The Bronx","Staten Island","Harlem"],
+    tokyo:    ["Shinjuku","Shibuya","Chiyoda","Setagaya","Minato","Sumida"],
+    paris:    ["Le Marais","Montmartre","La Défense","Belleville","Latin Quarter","Bercy"],
+    sydney:   ["CBD","Parramatta","Bondi","Chatswood","Newtown","Liverpool"],
+    dubai:    ["Deira","Jumeirah","Al Barsha","Business Bay","Al Quoz","Mirdif"],
+    beijing:  ["Chaoyang","Haidian","Dongcheng","Xicheng","Fengtai","Shijingshan"]
+};
+// deterministic spread so estimates stay stable between reloads
+const COLONY_SPREAD = [1.15, 0.85, 1.05, 0.95, 1.25, 0.9];
+
+function nearestCityKey(lat, lon){
+    let bestKey=null, bestD=1.0; // max ~1° (~110 km)
+    for(const k in CITY_DB){
+        const c=CITY_DB[k];
+        const d=Math.sqrt((c.lat-lat)**2 + (c.lon-lon)**2);
+        if(d<bestD){ bestD=d; bestKey=k; }
+    }
+    return bestKey;
+}
+
+function colonyStatus(aqi){
+    return aqi<=80 ? "Good" : aqi<=120 ? "Moderate" : "Unhealthy";
+}
+
+function buildColonyFallback(cityKey){
+    const names = COLONY_DB[cityKey];
+    if(!names) return null;
+    const base = CITY_DB[cityKey] ? CITY_DB[cityKey].aqi : 100;
+    return names.map((name,i)=>{
+        const aqi = Math.max(10, Math.round(base * COLONY_SPREAD[i % COLONY_SPREAD.length]));
+        return { name, aqi, pm25: Math.round(aqi*0.4), pm10: Math.round(aqi*0.6), status: colonyStatus(aqi) };
+    });
+}
+
+async function loadColonies(lat, lon, cityKey){
     try {
         const res=await fetch(`/local_areas_analysis?lat=${lat}&lon=${lon}`);
-        const areas=await res.json();
+        let areas=await res.json();
+        let estimated = false;
 
-        if(!areas || areas.length===0){
-            document.getElementById("colonyTable").innerHTML="<div class='loading-text'>No local area data available</div>";
-            return;
+        if(!areas || !Array.isArray(areas) || areas.length===0){
+            const key = cityKey || nearestCityKey(lat, lon);
+            areas = key ? buildColonyFallback(key) : null;
+            estimated = true;
+            if(!areas){
+                document.getElementById("colonyTable").innerHTML=
+                    "<div class='loading-text'>ℹ️ No monitoring stations found near this location. Try a major city for local air-quality data.</div>";
+                return;
+            }
         }
 
         let html=`
@@ -1530,11 +1655,35 @@ async function loadColonies(lat, lon){
         });
 
         html+="</table>";
+        if(estimated){
+            html+="<div class='rank-note'>* Estimated from the city average — no live station data for these areas right now</div>";
+        }
         document.getElementById("colonyTable").innerHTML=html;
     } catch(e) {
         console.log("Colony error:", e);
-        document.getElementById("colonyTable").innerHTML="<div class='loading-text'>Could not load local data</div>";
+        const key = cityKey || nearestCityKey(lat, lon);
+        const fb = key ? buildColonyFallback(key) : null;
+        if(fb){ renderColonyFallbackTable(fb); }
+        else document.getElementById("colonyTable").innerHTML="<div class='loading-text'>Could not load local data</div>";
     }
+}
+
+function renderColonyFallbackTable(areas){
+    let html=`<table style="width:100%;margin-top:10px;border-collapse:collapse">
+        <tr style="color:#9ca3af;font-size:12px">
+            <th style="text-align:left;padding:8px">Location</th><th style="padding:8px">Status</th>
+            <th style="padding:8px">AQI</th><th style="padding:8px">PM2.5</th><th style="padding:8px">PM10</th></tr>`;
+    areas.forEach(a=>{
+        const color = a.status==="Good" ? "#22c55e" : a.status==="Moderate" ? "#eab308" : "#ef4444";
+        html+=`<tr style="border-top:1px solid rgba(255,255,255,0.05)">
+            <td style="padding:8px;font-size:13px">${a.name}</td>
+            <td style="padding:8px;text-align:center"><span style="background:${color};padding:3px 8px;border-radius:6px;font-size:12px">${a.status}</span></td>
+            <td style="padding:8px;text-align:center">${a.aqi}</td>
+            <td style="padding:8px;text-align:center">${a.pm25}</td>
+            <td style="padding:8px;text-align:center">${a.pm10}</td></tr>`;
+    });
+    html+="</table><div class='rank-note'>* Estimated from the city average — no live station data for these areas right now</div>";
+    document.getElementById("colonyTable").innerHTML=html;
 }
 
 // ============================================================
@@ -1640,7 +1789,9 @@ async function loadRealCharts(lat,lon){
 
     /* 🌫 AQI 7-DAY TREND — line chart */
     if(histChart) histChart.destroy();
-    const aqiTrend = data.aqi_trend || [];
+    let aqiTrend = data.aqi_trend || [];
+    let trendEstimated = false;
+    if(!aqiTrend.length){ aqiTrend=[52,58,64,61,55,57,60]; trendEstimated=true; }
     histChart=new Chart(document.getElementById("histChart"),{
         type:"line",
         data:{
@@ -1661,7 +1812,7 @@ async function loadRealCharts(lat,lon){
         options:{
             responsive:true,
             plugins:{
-                title:{ display:true, text:"🌫 7-Day Air Quality Trend", color:"#e5e7eb", font:{size:14,weight:"600"} },
+                title:{ display:true, text: trendEstimated ? "🌫 7-Day Air Quality Trend (typical estimate)" : "🌫 7-Day Air Quality Trend", color:"#e5e7eb", font:{size:14,weight:"600"} },
                 legend:{ display:false },
                 tooltip:{
                     backgroundColor:"rgba(17,24,39,0.95)",
@@ -1722,7 +1873,14 @@ async function loadRealCharts(lat,lon){
 
     /* 🗺 LAND USE BREAKDOWN — horizontal bar */
     if(barChart) barChart.destroy();
-    const landUse = data.land_use || {};
+    let landUse = data.land_use || {};
+    let landUseEstimated = false;
+    const luSum = Object.values(landUse).reduce((a,b)=>a+(+b||0),0);
+    if(luSum <= 0){
+        // OSM had no data for this spot — show a typical dense-city split, labelled
+        landUse = {"Buildings %":48, "Green %":22, "Water %":8, "Industry %":22};
+        landUseEstimated = true;
+    }
     const landUseLabels = Object.keys(landUse);
     const landUseColors = [CHART_COLORS.blue, CHART_COLORS.green, CHART_COLORS.cyan, CHART_COLORS.purple, CHART_COLORS.orange];
 
@@ -1740,7 +1898,7 @@ async function loadRealCharts(lat,lon){
         options:{
             responsive:true,
             plugins:{
-                title:{ display:true, text:"🗺 Land Use Breakdown", color:"#e5e7eb", font:{size:14,weight:"600"} },
+                title:{ display:true, text: landUseEstimated ? "🗺 Land Use Breakdown (typical city estimate)" : "🗺 Land Use Breakdown", color:"#e5e7eb", font:{size:14,weight:"600"} },
                 legend:{ display:false },
                 tooltip:{
                     backgroundColor:"rgba(17,24,39,0.95)",
@@ -1789,17 +1947,44 @@ async function loadRealCharts(lat,lon){
 // ============================================================
 // GLOBAL RANKINGS
 // ============================================================
+// Hardcoded, consistent with CITY_DB — indicative annual averages, rendered
+// instantly with a clear label so nothing pretends to be real-time
+const RANKINGS = {
+    live: [
+        {city:"Delhi",aqi:210},{city:"Beijing",aqi:165},{city:"Dubai",aqi:95},
+        {city:"London",aqi:68},{city:"New York",aqi:75},{city:"Paris",aqi:70},
+        {city:"Tokyo",aqi:55},{city:"Singapore",aqi:60},{city:"Sydney",aqi:28},
+        {city:"Toronto",aqi:35}
+    ],
+    polluted: [
+        {city:"Delhi",aqi:210},{city:"Lahore",aqi:198},{city:"Kanpur",aqi:195},
+        {city:"Patna",aqi:190},{city:"Dhaka",aqi:185},{city:"Karachi",aqi:175},
+        {city:"Xi'an",aqi:170},{city:"Kolkata",aqi:168},{city:"Beijing",aqi:165},
+        {city:"Cairo",aqi:155}
+    ],
+    clean: [
+        {city:"Sydney",aqi:28},{city:"Adelaide",aqi:28},{city:"Vancouver",aqi:28},
+        {city:"Perth",aqi:30},{city:"Melbourne",aqi:32},{city:"Calgary",aqi:32},
+        {city:"Brisbane",aqi:35},{city:"Toronto",aqi:35},{city:"Montreal",aqi:38},
+        {city:"Cape Town",aqi:42}
+    ]
+};
+const RANK_TITLES = {
+    live: "Global snapshot of major cities",
+    polluted: "Cities with the worst average air quality",
+    clean: "Cities with the cleanest average air quality"
+};
+
 function loadGlobalRank(mode){
-    if(rankingCache[mode]){ renderRanking(rankingCache[mode]); return; }
-    fetch(`/global_rank?mode=${mode}`)
-        .then(res=>res.json())
-        .then(data=>{ rankingCache[mode]=data; renderRanking(data); })
-        .catch(e=>console.log("Rank error:",e));
+    renderRanking(RANKINGS[mode]||RANKINGS.live, RANK_TITLES[mode]||"");
 }
 
-function renderRanking(data){
-    let html=`<div class="ranking-card"><div class="ranking-header"><span>Rank</span><span>City</span><span style="text-align:right">AQI</span></div>`;
+function renderRanking(data, subtitle){
+    let html=`<div class="ranking-card">`;
+    if(subtitle) html+=`<div class="loading-text" style="padding:0 0 10px">${subtitle}</div>`;
+    html+=`<div class="ranking-header"><span>Rank</span><span>City</span><span style="text-align:right">AQI</span></div>`;
     data.forEach((c,i)=>{ html+=`<div class="ranking-row"><span class="rank">#${i+1}</span><span class="city">${c.city}</span><span class="aqi">${c.aqi}</span></div>`; });
+    html+=`<div class="rank-note">* Indicative annual-average AQI values for comparison — not a real-time feed</div>`;
     html+="</div>";
     document.getElementById("rankingTable").innerHTML=html;
 }
@@ -1863,12 +2048,21 @@ async function loadPlantationAI(n,s,e,w){
     }
 
     if(data.zone_plan){
+        const zp = data.zone_plan;
+        const tile = (emoji,label,num)=>`
+            <div class="zone-tile">
+                <div class="zt-num">${(num||0).toLocaleString()}</div>
+                <div class="zt-label">${emoji} ${label}</div>
+            </div>`;
         document.getElementById("zonePlan").innerHTML=`
-            🛣 Roadside Trees: <b>${data.zone_plan.roadside}</b><br>
-            🌳 Park Trees: <b>${data.zone_plan.parks}</b><br>
-            🌾 Vacant Land Trees: <b>${data.zone_plan.vacant_land}</b><br>
-            🏢 Rooftop Trees: <b>${data.zone_plan.rooftop}</b><br><br>
-            🌍 <b>Total Trees Required: ${(data.zone_plan.total_trees||0).toLocaleString()}</b>`;
+            <div class="zone-grid">
+                ${tile("🛣","Roadside Trees",zp.roadside)}
+                ${tile("🌳","Park Trees",zp.parks)}
+                ${tile("🌾","Vacant Land Trees",zp.vacant_land)}
+                ${tile("🏢","Rooftop Trees",zp.rooftop)}
+            </div>
+            <div class="zone-total">🌍 <b>Total Trees Required: ${(zp.total_trees||0).toLocaleString()}</b>
+                — full canopy impact in ~8–10 years, first AQI benefits in 2–3 years</div>`;
     }
 }
 
@@ -1916,7 +2110,7 @@ window.onload=function(){
     showHardcodedCity(start);
     // Then fill in colonies + charts for the default city (was never loaded before,
     // leaving the colony table stuck on "Loading..." and all four charts blank)
-    loadColonies(start.lat, start.lon);
+    loadColonies(start.lat, start.lon, "bhopal");
     loadRealCharts(start.lat, start.lon);
 };
 

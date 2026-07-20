@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, redirect, make_response
+from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from sqlalchemy import case
@@ -15,7 +16,12 @@ import math
 from shapely.geometry import box, shape
 from flask_cors import CORS
 
-
+# Load .env for localhost runs (optional — deployment platforms set real env vars)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 WEATHER_KEY = os.environ.get("WEATHER_KEY", "")
 from flask_cors import CORS
@@ -30,6 +36,11 @@ HEADERS = {
     "User-Agent": "GreenLens/1.0 (research project)"
 }
 WAQI_TOKEN = os.environ.get("WAQI_TOKEN", "") # free public token
+
+# Overpass can be slow on home networks — default 25s locally; hosted
+# deployments with a 30s request limit (e.g. Render/gunicorn) should set
+# OVERPASS_TIMEOUT=8 in their environment
+OVERPASS_TIMEOUT = int(os.environ.get("OVERPASS_TIMEOUT", 25))
 
 # -----------------------------
 # SIMPLE MEMORY CACHE SYSTEM
@@ -304,16 +315,26 @@ def get_real_aqi(lat, lon):
 app = Flask(__name__)
 CORS(app)
 
+# EE_READY gates every satellite route — when False they return tile:None
+# immediately (no per-request GEE errors) and the frontend uses OSM fallbacks
+EE_READY = False
 try:
     _ee_key = os.environ.get("GEE_KEY_FILE", "/etc/secrets/.ee_credentials.json")
-    credentials = ee.ServiceAccountCredentials(
-        email=os.environ.get("GEE_EMAIL", "greenlens-render@plant-project-475614.iam.gserviceaccount.com"),
-        key_file=_ee_key
-    )
-    ee.Initialize(credentials=credentials, project=os.environ.get("GEE_PROJECT", ""))
+    if os.path.exists(_ee_key):
+        # Server deployment: service-account key file
+        credentials = ee.ServiceAccountCredentials(
+            email=os.environ.get("GEE_EMAIL", "greenlens-render@plant-project-475614.iam.gserviceaccount.com"),
+            key_file=_ee_key
+        )
+        ee.Initialize(credentials=credentials, project=os.environ.get("GEE_PROJECT") or None)
+    else:
+        # Localhost: reuse credentials from `earthengine authenticate` if the
+        # developer has run it; otherwise this raises and we run without GEE
+        ee.Initialize(project=os.environ.get("GEE_PROJECT") or None)
+    EE_READY = True
     print("✅ Earth Engine initialized successfully")
 except Exception as e:
-    print(f"⚠ Earth Engine not available (satellite features disabled): {type(e).__name__}")
+    print(f"⚠ Earth Engine not available — satellite tiles disabled, OSM-based fallbacks will be used ({type(e).__name__})")
     
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32))
 
@@ -664,7 +685,7 @@ def get_osm_features_bbox(n, s, e, w):
     /* BUILDINGS */
     way["building"]({s},{w},{n},{e});
     );
-    out geom qt 8000;
+    out geom qt;
     """
 
     # ⚡ Multiple Overpass endpoints — rotate on failure (rate limit fix)
@@ -694,7 +715,7 @@ def get_osm_features_bbox(n, s, e, w):
                 endpoint,
                 data={"data": query},
                 headers=OVERPASS_HEADERS,
-                timeout=8  # ✅ FIX 1: was 28 — total max ~30s fits in gunicorn window
+                timeout=OVERPASS_TIMEOUT
             )
             ct = raw.headers.get("content-type", "")
             text = raw.text.strip()
@@ -735,7 +756,7 @@ def get_osm_features_bbox(n, s, e, w):
     try:
         res = res_json
 
-        elements = res.get("elements", [])[:6000]
+        elements = res.get("elements", [])
         for el in elements:
 
             # skip if geometry missing
@@ -758,9 +779,7 @@ def get_osm_features_bbox(n, s, e, w):
                 tags.get("natural") == "water"
                 or tags.get("water") in ["lake","pond","reservoir"]
             ):
-                # ignore huge riverbanks (too large polygons)
-                if len(coords) < 800:
-                    layers["water"].append(coords)
+                layers["water"].append(coords)
 
             # Green areas → polygons
             elif (
@@ -768,8 +787,7 @@ def get_osm_features_bbox(n, s, e, w):
                 or tags.get("natural") in ["wood","grassland","scrub"]
                 or tags.get("landuse") in ["forest","grass","meadow","orchard"]
             ):
-                if len(coords) < 1500:
-                    layers["green"].append(coords)
+                layers["green"].append(coords)
 
             # Industry → polygons
             elif (
@@ -779,10 +797,9 @@ def get_osm_features_bbox(n, s, e, w):
             ):
                 layers["industry"].append(coords)
 
-            # Buildings → polygons (cap at 2000 to prevent OOM)
+            # Buildings → polygons (no cap — every building in the box is kept)
             elif "building" in tags:
-                if len(layers["buildings"]) < 2000:
-                    layers["buildings"].append(coords)
+                layers["buildings"].append(coords)
 
     except Exception as e:
         print("OSM PARSE ERROR:", e)
@@ -928,9 +945,48 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///greenlens.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
-UPLOAD_FOLDER = "static/uploads"
+# Absolute path tied to where app.py lives — NOT the current working directory.
+# Saving to a CWD-relative "static/uploads" while Flask serves from
+# <app_root>/static caused uploaded images to 404 when the app was started
+# from a different folder.
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+from flask import send_from_directory
+
+@app.route("/static/uploads/<path:filename>")
+def serve_upload(filename):
+    # Explicit route so uploads always serve from the same absolute folder
+    # they were saved to, regardless of the process working directory.
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+def save_upload(file_storage):
+    # Robust across OS + odd filenames:
+    #  - always keep a valid image extension (unicode/emoji names can make
+    #    secure_filename() return '' → broken/undisplayable file)
+    #  - unique name avoids collisions
+    #  - URL uses forward slashes so it serves on Windows too
+    orig = secure_filename(file_storage.filename or "")
+    ext  = os.path.splitext(orig)[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        ext = ".png"
+    filename = f"{uuid.uuid4().hex[:12]}{ext}"
+    folder = app.config["UPLOAD_FOLDER"]
+    os.makedirs(folder, exist_ok=True)          # ensure it exists at save time
+    file_storage.save(os.path.join(folder, filename))
+    return f"/static/uploads/{filename}"
+
+def public_upload_url(path):
+    # Normalize legacy DB values saved with os.path.join on Windows
+    if not path:
+        return ""
+    p = str(path).replace("\\", "/")
+    if not (p.startswith("/") or p.startswith("http") or p.startswith("data:")):
+        p = "/" + p
+    return p
 # ======================
 # DATABASE MODELS
 # ======================
@@ -1048,35 +1104,65 @@ def create_notification(receiver, sender, ntype, post_id=None):
 # PAGE ROUTES
 # ======================
 
+# Server-side gate for community pages. Client-side JS checks alone let the
+# browser's back/forward cache show a protected page without re-running the
+# redirect — so we block at the server AND send no-store so nothing sensitive
+# is served from cache after logout. Dashboard + landing stay public.
+def page_login_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not session.get("uid"):
+            return redirect("/auth")
+        resp = make_response(view(*args, **kwargs))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
+    return wrapper
+
 @app.route("/")
 def home():
     return render_template("landing.html")
 
 @app.route("/dashboard")
 def dashboard():
-    return render_template("dashboard.html")
+    # Tile-layer keys are injected from env at render time (never committed to
+    # git). WAQI falls back to its public "demo" token when no token is set.
+    return render_template(
+        "dashboard.html",
+        waqi_token=WAQI_TOKEN or "demo",
+        weather_key=WEATHER_KEY
+    )
 
 @app.route("/community")
+@page_login_required
 def social():
     return render_template("social.html")
 
 @app.route("/auth")
 def auth():
+    # already logged in → skip the auth page
+    if session.get("uid"):
+        return redirect("/community")
     return render_template("auth.html")
 
 @app.route("/profile.html")
+@page_login_required
 def profile():
     return render_template("profile.html")
 
 @app.route("/messages.html")
+@page_login_required
 def messages_page():
     return render_template("messages.html")
 
 @app.route("/inbox.html")
+@page_login_required
 def inbox_page():
     return render_template("inbox.html")
 
 @app.route("/admin.html")
+@page_login_required
 def admin_page():
     return render_template("admin.html")
 
@@ -1118,7 +1204,7 @@ def get_user(uid):
     return jsonify({
         "uid": user.uid,
         "name": user.name,
-        "avatar": user.avatar,
+        "avatar": public_upload_url(user.avatar),
         "bio": user.bio,
         "email": user.email,
         "is_admin": user.is_admin
@@ -1154,10 +1240,7 @@ def update_user():
         user.bio = bio
 
     if avatar_file and avatar_file.filename:
-        filename = secure_filename(avatar_file.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        avatar_file.save(filepath)
-        user.avatar = filepath
+        user.avatar = save_upload(avatar_file)
 
     db.session.commit()
     return jsonify({"status": "updated"})
@@ -1281,25 +1364,32 @@ def create_event():
         return jsonify({"error":"admin only"}), 403
 
     # 3️⃣ Get form data
-    title = request.form.get("title")
-    location = request.form.get("location")
-    description = request.form.get("description")
-    date_str = request.form.get("date")
+    title = (request.form.get("title") or "").strip()
+    location = (request.form.get("location") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    date_str = (request.form.get("date") or "").strip()
     image = request.files.get("image")
 
-    if not title or not location or not description or not date_str:
-        return jsonify({"error":"missing fields"}), 400
+    # Tell the admin exactly which field is missing (instead of a vague 400)
+    missing = [name for name, val in
+               [("title", title), ("location", location),
+                ("description", description), ("date", date_str)] if not val]
+    if missing:
+        return jsonify({"error": "Please fill: " + ", ".join(missing)}), 400
 
-    # 4️⃣ Convert date string → datetime
-    event_date = datetime.fromisoformat(date_str)
+    # 4️⃣ Convert date string → datetime (accepts "YYYY-MM-DD" from <input type=date>)
+    try:
+        event_date = datetime.fromisoformat(date_str)
+    except ValueError:
+        try:
+            event_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "Invalid date format"}), 400
 
     # 5️⃣ Handle optional image upload
     image_path = None
     if image and image.filename:
-        filename = secure_filename(image.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(filepath)
-        image_path = filepath
+        image_path = save_upload(image)
 
     # 6️⃣ Save event
     event = Event(
@@ -1338,7 +1428,7 @@ def search_users(query, current_uid):
                 "uid": user.uid,
                 "name": user.name,
                 "bio": user.bio,
-                "avatar": user.avatar
+                "avatar": public_upload_url(user.avatar)
             })
 
     return jsonify(results)
@@ -1456,6 +1546,56 @@ def admin_delete_post(pid):
     return jsonify({"status":"deleted"})
 
 # ======================
+# ADMIN DELETE USER (cascade everything)
+# ======================
+
+@app.route("/api/admin/users/delete/<target_uid>", methods=["DELETE"])
+def admin_delete_user(target_uid):
+
+    uid = session.get("uid")
+    if not uid:
+        return jsonify({"error":"login required"}), 401
+
+    admin = User.query.get(uid)
+    if not admin or not admin.is_admin:
+        return jsonify({"error":"admin only"}), 403
+
+    target = User.query.get(target_uid)
+    if not target:
+        return jsonify({"error":"user not found"}), 404
+
+    # An admin can't delete their own account here (avoid locking out)
+    if target.uid == uid:
+        return jsonify({"error":"cannot delete your own admin account"}), 400
+
+    # Remove this user's posts and everything attached to those posts
+    user_posts = Post.query.filter_by(uid=target_uid).all()
+    for p in user_posts:
+        Comment.query.filter_by(post_id=p.id).delete()
+        Like.query.filter_by(post_id=p.id).delete()
+        db.session.delete(p)
+
+    # Remove the user's own comments / likes elsewhere
+    Comment.query.filter_by(uid=target_uid).delete()
+    Like.query.filter_by(uid=target_uid).delete()
+
+    # Connections, notifications, messages (both directions)
+    Connection.query.filter(
+        (Connection.sender_uid == target_uid) | (Connection.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+    Notification.query.filter(
+        (Notification.sender_uid == target_uid) | (Notification.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+    Message.query.filter(
+        (Message.sender_uid == target_uid) | (Message.receiver_uid == target_uid)
+    ).delete(synchronize_session=False)
+
+    db.session.delete(target)
+    db.session.commit()
+
+    return jsonify({"status":"user deleted"})
+
+# ======================
 # POSTS APIs
 # ======================
 
@@ -1470,14 +1610,14 @@ def get_posts():
             "id": p.id,
             "uid": p.uid,
             "author": p.author,
-            "avatar": User.query.get(p.uid).avatar if User.query.get(p.uid) else "",
+            "avatar": public_upload_url(User.query.get(p.uid).avatar) if User.query.get(p.uid) else "",
             "content": p.content,
             "likes": p.likes,
             "shares": p.shares,
             "timestamp": p.timestamp.isoformat(),
             "is_repost": p.is_repost,
             "original_post_id": p.original_post_id,
-            "image_url": p.image_url
+            "image_url": public_upload_url(p.image_url)
         }
 
         # If repost, attach original data
@@ -1558,13 +1698,13 @@ def get_feed(uid):
             "id": p.id,
             "uid": p.uid,
             "author": p.author,
-            "avatar": users[p.uid].avatar if p.uid in users else "",
+            "avatar": public_upload_url(users[p.uid].avatar) if p.uid in users else "",
             "content": p.content,
             "likes": p.likes,
             "shares": p.shares,
             "timestamp": p.timestamp.isoformat(),
             "is_repost": p.is_repost,
-            "image_url": p.image_url,
+            "image_url": public_upload_url(p.image_url),
             "original_post_id": p.original_post_id
         }
 
@@ -1616,10 +1756,7 @@ def create_post():
     image_path = None
 
     if image and image.filename:
-        filename = secure_filename(image.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(filepath)
-        image_path = filepath
+        image_path = save_upload(image)
 
     post = Post(
         uid=uid,
@@ -2061,7 +2198,7 @@ def get_inbox(uid):
             conversations[other] = {
                 "uid": other,
                 "name": user.name if user else "User",
-                "avatar": user.avatar if user else "",
+                "avatar": public_upload_url(user.avatar) if user else "",
                 "last_message": m.text,
                 "timestamp": m.timestamp.isoformat(),
                 "unread": unread
@@ -2085,6 +2222,7 @@ def get_notifications(uid):
         result.append({
             "id": n.id,
             "sender": sender.name if sender else "User",
+            "sender_uid": n.sender_uid,   # so clicks can open the sender's profile
             "type": n.type,
             "post_id": n.post_id,
             "timestamp": n.timestamp.isoformat(),
@@ -2147,13 +2285,16 @@ def get_events():
             "location": e.location,
             "description": e.description,
             "date": e.event_date.isoformat(),
-            "image_url": e.image_url
+            "image_url": public_upload_url(e.image_url)
         })
 
     return jsonify(result)
 
 @app.route("/satellite/<year>")
 def satellite(year):
+
+    if not EE_READY:
+        return jsonify({"tile": None, "error": "Satellite imagery unavailable (Earth Engine not configured)"})
 
     year = int(year)
     start = f"{year}-01-01"
@@ -2219,6 +2360,9 @@ def ndvi():
 
     if north is None:
         return jsonify({"error":"bbox missing"}),400
+
+    if not EE_READY:
+        return jsonify({"tile": None, "error": "NDVI unavailable (Earth Engine not configured)"})
 
     try:
         region = ee.Geometry.Rectangle([west, south, east, north])
@@ -2533,46 +2677,63 @@ def global_rank():
 # ---------------------------------------------------------
 
 
+def _poly_center(poly):
+    lat = sum(p[0] for p in poly) / len(poly)
+    lon = sum(p[1] for p in poly) / len(poly)
+    return lat, lon
+
+# Grid spatial index: bucket centers by cell so proximity checks are O(1)
+# per query instead of scanning every polygon. This is what lets the heat
+# engines run WITHOUT sampling caps on large areas.
+def _build_grid(polys, cell):
+    grid = {}
+    centers = []
+    for poly in polys:
+        if not poly:
+            continue
+        c = _poly_center(poly)
+        centers.append(c)
+        key = (int(c[0] // cell), int(c[1] // cell))
+        grid.setdefault(key, []).append(c)
+    return grid
+
+def _near_in_grid(grid, pt, cell, radius):
+    ki, kj = int(pt[0] // cell), int(pt[1] // cell)
+    r2 = radius * radius
+    for i in range(ki - 1, ki + 2):
+        for j in range(kj - 1, kj + 2):
+            for c in grid.get((i, j), ()):
+                if (pt[0]-c[0])**2 + (pt[1]-c[1])**2 < r2:
+                    return True
+    return False
+
 def generate_rooftop_heat(buildings, industry, green, aqi):
 
-    MAX_POINTS = 1200   # 🔥 PERFORMANCE LIMIT
     heat_points = []
 
     if not buildings:
         return heat_points
 
-    # polygon center helper
-    def center(poly):
-        lat = sum(p[0] for p in poly) / len(poly)
-        lon = sum(p[1] for p in poly) / len(poly)
-        return lat, lon
+    RADIUS = 0.01
+    industry_grid = _build_grid(industry, RADIUS)
+    green_grid    = _build_grid(green, RADIUS)
+    aqi_score = min((aqi or 80) / 300, 0.3)
 
-    def dist(a,b):
-        return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    # 🎯 Every building in the box gets a rooftop score — no sampling
+    for b in buildings:
+        if not b:
+            continue
+        b_center = _poly_center(b)
 
-    # 🎯 STEP 1 — Sample buildings (VERY IMPORTANT)
-    step = max(1, int(len(buildings) / MAX_POINTS))
-    sampled_buildings = buildings[::step]
-
-    for b in sampled_buildings:
-        b_center = center(b)
-
-        score = 0.4
-
-        # AQI factor
-        score += min((aqi or 80) / 300, 0.3)
+        score = 0.4 + aqi_score
 
         # near industry → more rooftop needed
-        for ind in industry[:80]:  # limit search
-            if dist(b_center, center(ind)) < 0.01:
-                score += 0.2
-                break
+        if _near_in_grid(industry_grid, b_center, RADIUS, RADIUS):
+            score += 0.2
 
         # near green → less need
-        for g in green[:80]:
-            if dist(b_center, center(g)) < 0.01:
-                score -= 0.2
-                break
+        if _near_in_grid(green_grid, b_center, RADIUS, RADIUS):
+            score -= 0.2
 
         score = max(0.1, min(score, 1.0))
 
@@ -2586,44 +2747,32 @@ def generate_rooftop_heat(buildings, industry, green, aqi):
 
 def generate_ground_heat(layers, aqi):
 
-    MAX_POINTS = 800
     heat_points = []
 
-    buildings = layers["buildings"]
     green = layers["green"]
     water = layers["water"]
     industry = layers["industry"]
 
-    # helper
-    def center(poly):
-        lat = sum(p[0] for p in poly) / len(poly)
-        lon = sum(p[1] for p in poly) / len(poly)
-        return lat, lon
+    RADIUS = 0.02
+    industry_grid = _build_grid(industry, RADIUS)
+    water_grid    = _build_grid(water, RADIUS)
+    aqi_score = min((aqi or 80) / 300, 0.3)
 
-    def dist(a,b):
-        return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    # Candidate areas = ALL green polygons — no thinning, no point cap
+    for poly in green:
 
-    # Candidate areas = green edges + empty spaces
-    candidates = layers["green"][::3]  # reduce density
-
-    for poly in candidates[:MAX_POINTS]:
-
-        c = center(poly)
-        score = 0.5
+        if not poly:
+            continue
+        c = _poly_center(poly)
+        score = 0.5 + aqi_score
 
         # near industry = more plantation needed
-        for ind in industry[:50]:
-            if dist(c, center(ind)) < 0.02:
-                score += 0.2
-                break
+        if _near_in_grid(industry_grid, c, RADIUS, RADIUS):
+            score += 0.2
 
         # near water = less needed
-        for w in water[:50]:
-            if dist(c, center(w)) < 0.02:
-                score -= 0.2
-                break
-
-        score += min((aqi or 80) / 300, 0.3)
+        if _near_in_grid(water_grid, c, RADIUS, RADIUS):
+            score -= 0.2
 
         score = max(0.1, min(score, 1.0))
 
@@ -2768,11 +2917,12 @@ def analyze():
             }
 
         aqi = get_real_aqi(lat, lon)
-        try:
-            ndvi_tile = get_ndvi_tile(north, south, east, west)
-        except Exception as gee_err:
-            print("GEE NDVI error:", gee_err)
-            ndvi_tile = None
+        ndvi_tile = None
+        if EE_READY:
+            try:
+                ndvi_tile = get_ndvi_tile(north, south, east, west)
+            except Exception as gee_err:
+                print("GEE NDVI error:", gee_err)
 
         rooftop_heat = generate_rooftop_heat(
             layers["buildings"],
@@ -2815,13 +2965,14 @@ def analyze():
 
         aqi = get_real_aqi(lat, lon)
 
-        try:
-            ndvi_tile = get_ndvi_tile(
-                lat+0.02, lat-0.02, lon+0.02, lon-0.02
-            )
-        except Exception as gee_err:
-            print("GEE NDVI error:", gee_err)
-            ndvi_tile = None
+        ndvi_tile = None
+        if EE_READY:
+            try:
+                ndvi_tile = get_ndvi_tile(
+                    lat+0.02, lat-0.02, lon+0.02, lon-0.02
+                )
+            except Exception as gee_err:
+                print("GEE NDVI error:", gee_err)
 
         # ⭐ ADD SAME PIPELINE AS RECTANGLE MODE
         rooftop_heat = generate_rooftop_heat(
@@ -2910,7 +3061,7 @@ def impact():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"}, 400
 
     lat = (north + south) / 2
@@ -2933,7 +3084,7 @@ def recommendations():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"},400
 
     # ⚡ Use same buffer as /analyze so OSM cache is always hit
@@ -3003,8 +3154,21 @@ def calculate_green_impact(north, south, east, west, aqi):
     # 💨 AQI improvement (max 25 points)
     aqi_improvement = int(min(aqi * 0.12, 25))
 
-    # 🌿 CO₂ absorption (tons/year)
+    # 🌿 CO₂ absorption (tons/year) — mature urban tree ≈ 22 kg/yr
     co2_tons = round((trees_required * 22) / 1000, 1)
+
+    # 💰 Cost model (indicative): sapling + planting ≈ $2.5/tree,
+    # watering/care ≈ $0.8/tree/yr for the first 3 establishment years
+    planting_cost = int(trees_required * 2.5)
+    annual_maintenance = int(trees_required * 0.8)
+
+    # ⏳ When benefits arrive (urban-forestry rules of thumb)
+    benefit_timeline = [
+        {"period": "6–12 months", "benefit": "Saplings establish, dust capture begins (~10% of full impact)"},
+        {"period": "2–3 years",   "benefit": "First measurable AQI improvement (~40% of full impact)"},
+        {"period": "5 years",     "benefit": "Canopy forms, street-level cooling felt (~75% of full impact)"},
+        {"period": "8–10 years",  "benefit": "Mature canopy — full cooling, AQI and CO₂ impact reached"},
+    ]
 
     return {
         "area_km2": round(area_km2, 2),
@@ -3012,7 +3176,10 @@ def calculate_green_impact(north, south, east, west, aqi):
         "expected_cooling_c": round(cooling, 1),
         "aqi_improvement": aqi_improvement,
         "co2_absorption_tons_per_year": co2_tons,
-        "canopy_gain_percent": 15
+        "canopy_gain_percent": 15,
+        "planting_cost_usd": planting_cost,
+        "annual_maintenance_usd": annual_maintenance,
+        "benefit_timeline": benefit_timeline
     }
 
 
@@ -3072,12 +3239,14 @@ def forecast():
 
     # nearest cached region find
     best = None
+    best_key = None
     best_dist = 999
 
     for area,data in URBAN_CACHE.items():
         d = distance(user_center, bbox_center(data["bbox"]))
         if d < best_dist:
             best = data
+            best_key = area
             best_dist = d
 
     built_2019 = best["2019_built_percent"]
@@ -3095,7 +3264,9 @@ def forecast():
         "2024": built_2024,
         "2027": built_2027,
         "2030": built_2030,
-        "growth_rate_per_year": round(growth_rate,2)
+        "growth_rate_per_year": round(growth_rate,2),
+        # so the UI can say which city's trend this estimate is based on
+        "reference_city": (best_key or "").title()
     }
 
 # 🌡 THERMAL HEATMAP ROUTE
@@ -3107,14 +3278,15 @@ def heatmap():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error": "bbox missing"}, 400
 
-    try:
-        tile = get_thermal_tile(north, south, east, west)
-    except Exception as e:
-        print("GEE heatmap error:", e)
-        tile = None
+    tile = None
+    if EE_READY:
+        try:
+            tile = get_thermal_tile(north, south, east, west)
+        except Exception as e:
+            print("GEE heatmap error:", e)
 
     return {
         "tile": tile,
@@ -3130,14 +3302,15 @@ def plantation_map():
     east  = request.args.get("e", type=float)
     west  = request.args.get("w", type=float)
 
-    if not north or not south or not east or not west:
+    if None in (north, south, east, west):
         return {"error":"bbox missing"}, 400
 
-    try:
-        tile = get_plantation_tile(north, south, east, west)
-    except Exception as e:
-        print("GEE plantation error:", e)
-        tile = None
+    tile = None
+    if EE_READY:
+        try:
+            tile = get_plantation_tile(north, south, east, west)
+        except Exception as e:
+            print("GEE plantation error:", e)
 
     return {"tile": tile}
 
@@ -3222,6 +3395,12 @@ def environment_full():
         waqi_res = requests.get(waqi_url, timeout=6).json()
         if waqi_res["status"] == "ok":
             aqi_value = waqi_res["data"]["aqi"]
+            # WAQI returns "-" for stations without data; a string here
+            # crashes the pollution_breakdown math below with a 500
+            try:
+                aqi_value = int(aqi_value)
+            except (TypeError, ValueError):
+                aqi_value = None
             forecast = waqi_res["data"]["forecast"]["daily"]["pm25"]
             for day in forecast[:7]:
                 aqi_trend.append(day["avg"])
@@ -3682,4 +3861,6 @@ def species_info():
 # ======================
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    # Local run: python app.py  →  http://127.0.0.1:5000/dashboard
+    # host 0.0.0.0 also allows phones/other devices on the same network
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)

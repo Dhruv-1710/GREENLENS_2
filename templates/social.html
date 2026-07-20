@@ -386,6 +386,7 @@ z-index:9999;
 </div> <!-- page-container end -->
 <script>
 let uid = null;
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='48' fill='#10b981'/><circle cx='48' cy='38' r='15' fill='white' opacity='0.92'/><path d='M20 86c5-19 17-27 28-27s23 8 28 27z' fill='white' opacity='0.92'/></svg>");
 
 let limit = 5;
 let offset = 0;
@@ -393,15 +394,21 @@ let hasMore = true;
 
 
 checkAuth();
-
-
+// Re-verify on back/forward-cache restore (belt-and-suspenders with the
+// server-side no-store guard) so a cached page can never show without login
+window.addEventListener("pageshow", function(e){ if(e.persisted) checkAuth(); });
 
 async function checkAuth() {
-    const res = await fetch("/api/auth/me");
-    const data = await res.json();
+    let data;
+    try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        data = await res.json();
+    } catch(e) {
+        window.location.replace("/auth"); return;
+    }
 
     if (!data.user) {
-        window.location.href = "/auth";
+        window.location.replace("/auth");   // replace() so back button can't return here
         return;
     }
 
@@ -409,7 +416,7 @@ async function checkAuth() {
 
     syncUser();
     checkAdmin();
-    loadPosts();
+    await loadPosts();
     loadEvents();
     loadNotifications();
     loadUnreadCount();
@@ -419,6 +426,9 @@ async function checkAuth() {
     setInterval(()=>loadPosts(false), 3000);
 
     loadMiniProfile();
+
+    // opened via a notification link (…/community#post-N) → jump to that post
+    if(location.hash.startsWith("#post-")) scrollToHashPost();
 }
 
 function formatTime(ts) {
@@ -545,7 +555,7 @@ async function loadPosts(reset = true) {
             <div class="post-card">
 
                 <div class="post-header" onclick="openProfileFromFeed('${post.uid}')">
-                    <img src="${post.avatar || ''}" class="post-avatar">
+                    <img src="${post.avatar || DEFAULT_AVATAR}" class="post-avatar">
 
                     <div>
                         <div class="post-author">${post.author}</div>
@@ -810,7 +820,8 @@ function renderLoadMore() {
 
 async function logout(){
     await fetch("/api/auth/logout");
-    window.location.href = "/";
+    try { localStorage.clear(); } catch(e) {}
+    window.location.replace("/auth");
 }
 
 
@@ -853,12 +864,12 @@ async function loadNotificationsDropdown(){
 
         if(n.type==="connect_request"){
             text="sent you a connection request 🤝";
-            clickAction=`openProfileFromNotification('${n.sender}')`;
+            clickAction=`openProfileFromNotification('${n.sender_uid}')`;
         }
 
         if(n.type==="connect_accept"){
             text="accepted your connection 🎉";
-            clickAction=`openProfileFromNotification('${n.sender}')`;
+            clickAction=`openProfileFromNotification('${n.sender_uid}')`;
         }
 
         const unreadClass = !n.is_read ? "unread-notif" : "";
@@ -930,12 +941,12 @@ async function toggleNotif(){
 
     if(n.type==="connect_request"){
         text = "sent you a connection request 🤝";
-        clickAction = `openProfileFromNotification('${n.sender}')`;
+        clickAction = `openProfileFromNotification('${n.sender_uid}')`;
     }
 
     if(n.type==="connect_accept"){
         text = "accepted your connection 🎉";
-        clickAction = `openProfileFromNotification('${n.sender}')`;
+        clickAction = `openProfileFromNotification('${n.sender_uid}')`;
     }
 
     box.innerHTML += `
@@ -1127,7 +1138,7 @@ async function loadMiniProfile(){
     const userRes = await fetch("/api/user/" + uid);
     const user = await userRes.json();
 
-    document.getElementById("miniAvatar").src = user.avatar || "";
+    document.getElementById("miniAvatar").src = user.avatar || DEFAULT_AVATAR;
     document.getElementById("miniName").innerText = user.name;
     document.getElementById("miniBio").innerText = user.bio;
 }
@@ -1170,12 +1181,41 @@ https://wa.me/?text=${encodeURIComponent(text+" "+url)}
 }
 
 function openProfileFromNotification(uid){
+    if(!uid) return;
     window.location.href = "/profile.html?uid=" + uid;
 }
 
 function openPostFromNotification(postId){
     if(!postId) return;
-    window.location.href = "/community#post-" + postId;
+    // already on the community page → jump straight to the post
+    if(location.pathname === "/community" || location.pathname.endsWith("community")){
+        toggleNotif();                 // close the dropdown
+        location.hash = "post-" + postId;
+        scrollToHashPost();
+    } else {
+        window.location.href = "/community#post-" + postId;
+    }
+}
+
+// Scroll to and briefly highlight the post named in the URL hash (#post-N).
+// Loads more of the feed if the post isn't on screen yet.
+async function scrollToHashPost(tries){
+    tries = tries || 0;
+    const m = (location.hash || "").match(/post-(\d+)/);
+    if(!m) return;
+    const el = document.getElementById("post-" + m[1]);
+    if(el){
+        el.scrollIntoView({behavior:"smooth", block:"center"});
+        el.style.transition = "box-shadow .3s, background .3s";
+        el.style.boxShadow  = "0 0 0 3px #10b981";
+        setTimeout(()=>{ el.style.boxShadow = ""; }, 2200);
+        return;
+    }
+    // not loaded yet → pull more pages, then retry (cap the attempts)
+    if(hasMore && tries < 12){
+        await loadPosts(false);
+        setTimeout(()=>scrollToHashPost(tries + 1), 250);
+    }
 }
 
 

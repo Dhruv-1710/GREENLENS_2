@@ -95,6 +95,7 @@ body{
 <script>
 
 let uid = null;
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='48' fill='#10b981'/><circle cx='48' cy='38' r='15' fill='white' opacity='0.92'/><path d='M20 86c5-19 17-27 28-27s23 8 28 27z' fill='white' opacity='0.92'/></svg>");
 
 checkAuth();
 
@@ -131,7 +132,7 @@ async function loadInbox(){
     chats.forEach(c=>{
         box.innerHTML += `
             <div class="chat" onclick="openChat('${c.uid}')">
-                <img src="${c.avatar}" class="avatar">
+                <img src="${c.avatar || DEFAULT_AVATAR}" class="avatar">
 
                 <div style="flex:1">
                     <b>${c.name}</b><br>

@@ -96,16 +96,19 @@ venv\Scripts\activate         # Windows
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
+### 4. Configure environment variables (optional)
 ```bash
 cp .env.example .env
-# Open .env and fill in your API keys
+# Open .env and fill in any API keys you have
 ```
 
-You'll need:
-- **OpenWeatherMap key** — [openweathermap.org/api](https://openweathermap.org/api)
-- **WAQI token** — [aqicn.org/data-platform/token](https://aqicn.org/data-platform/token/)
-- **Google Earth Engine project** — [earthengine.google.com](https://earthengine.google.com/) *(requires GEE access)*
+**All keys are optional on localhost** — the app runs without any of them
+using OSM data and built-in fallbacks. Add keys to unlock live data:
+- **OpenWeatherMap key** — [openweathermap.org/api](https://openweathermap.org/api) *(live weather + better city search)*
+- **WAQI token** — [aqicn.org/data-platform/token](https://aqicn.org/data-platform/token/) *(live AQI + station data)*
+- **Google Earth Engine** — [earthengine.google.com](https://earthengine.google.com/) *(satellite NDVI/thermal/plantation tiles)*.
+  On localhost just run `earthengine authenticate` once — no key file needed.
+  Without GEE, the dashboard automatically renders OSM-based heatmaps instead.
 
 ### 5. Run the app
 ```bash

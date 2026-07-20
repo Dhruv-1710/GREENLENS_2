@@ -292,16 +292,24 @@ z-index:9999;
 <script>
 
 let uid = null;
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='48' fill='#10b981'/><circle cx='48' cy='38' r='15' fill='white' opacity='0.92'/><path d='M20 86c5-19 17-27 28-27s23 8 28 27z' fill='white' opacity='0.92'/></svg>");
 let username = null;
 
 window.addEventListener("DOMContentLoaded", checkAuth);
+// Re-verify on back/forward-cache restore so a cached page can't show logged-out
+window.addEventListener("pageshow", function(e){ if(e.persisted) checkAuth(); });
 
 async function checkAuth(){
-    const res = await fetch("/api/auth/me");
-    const data = await res.json();
+    let data;
+    try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        data = await res.json();
+    } catch(e) {
+        window.location.replace("/auth"); return;
+    }
 
     if(!data.user){
-        window.location.href="/";
+        window.location.replace("/auth");
         return;
     }
 
@@ -402,7 +410,7 @@ async function loadProfile() {
     const profileName = document.getElementById("profileName");
     const profileBio = document.getElementById("profileBio");
 
-    if (avatar) avatar.src = data.avatar || "";
+    if (avatar) avatar.src = data.avatar || DEFAULT_AVATAR;
     if (profileName) profileName.innerText = data.name || "";
     if (profileBio) profileBio.innerText = data.bio || "";
 }

@@ -193,12 +193,27 @@ async function logout(){
 
 async function createEventAdmin(){
 
-    const formData = new FormData();
+    const title = document.getElementById("title").value.trim();
+    const location = document.getElementById("location").value.trim();
+    const description = document.getElementById("description").value.trim();
+    const date = document.getElementById("date").value;
 
-    formData.append("title",document.getElementById("title").value);
-    formData.append("location",document.getElementById("location").value);
-    formData.append("description",document.getElementById("description").value);
-    formData.append("date",document.getElementById("date").value);
+    // Client-side check so the admin sees exactly what's missing
+    const missing = [];
+    if(!title) missing.push("Title");
+    if(!location) missing.push("Location");
+    if(!description) missing.push("Description");
+    if(!date) missing.push("Date");
+    if(missing.length){
+        document.getElementById("status").innerText = "❌ Please fill: " + missing.join(", ");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("location", location);
+    formData.append("description", description);
+    formData.append("date", date);
 
     const img=document.getElementById("image").files[0];
     if(img) formData.append("image",img);
@@ -212,6 +227,9 @@ async function createEventAdmin(){
 
     if(data.status){
         document.getElementById("status").innerText="✅ Event Created!";
+        // clear the form
+        ["title","location","description","date"].forEach(id=>document.getElementById(id).value="");
+        document.getElementById("image").value="";
         loadEventsAdmin();
     }else{
         document.getElementById("status").innerText="❌ "+data.error;
@@ -281,6 +299,8 @@ async function loadUsers(){
     const box=document.getElementById("usersList");
     box.innerHTML="";
 
+    if(users.length===0){ box.innerHTML="No users"; return; }
+
     users.forEach(u=>{
 
         box.innerHTML+=`
@@ -288,14 +308,36 @@ async function loadUsers(){
         <div class="item">
 
         <b>${u.name}</b><br>
-        <small>${u.email}</small><br>
-        <small>${u.bio}</small>
+        <small>${u.email||""}</small><br>
+        <small>${u.bio||""}</small><br>
+
+        <button class="small-btn" style="background:#ef4444"
+                onclick="deleteUser('${u.uid}','${(u.name||'').replace(/'/g,"")}')">🗑 Delete User</button>
 
         </div>
 
         `;
 
     });
+
+}
+
+
+/* ================= DELETE USER (ADMIN) ================= */
+
+async function deleteUser(uid, name){
+
+    if(!confirm(`Delete user "${name}"?\n\nThis permanently removes their account, posts, comments, likes, connections, messages and notifications. This cannot be undone.`)) return;
+
+    const res = await fetch("/api/admin/users/delete/"+uid,{ method:"DELETE" });
+    const data = await res.json();
+
+    if(data.status){
+        loadUsers();
+        loadPostsAdmin();   // their posts are gone too
+    }else{
+        alert("❌ "+(data.error||"Could not delete user"));
+    }
 
 }
 
