@@ -296,13 +296,20 @@ const DEFAULT_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xml
 let username = null;
 
 window.addEventListener("DOMContentLoaded", checkAuth);
+// Re-verify on back/forward-cache restore so a cached page can't show logged-out
+window.addEventListener("pageshow", function(e){ if(e.persisted) checkAuth(); });
 
 async function checkAuth(){
-    const res = await fetch("/api/auth/me");
-    const data = await res.json();
+    let data;
+    try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        data = await res.json();
+    } catch(e) {
+        window.location.replace("/auth"); return;
+    }
 
     if(!data.user){
-        window.location.href="/";
+        window.location.replace("/auth");
         return;
     }
 

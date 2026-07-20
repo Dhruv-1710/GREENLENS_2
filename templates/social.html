@@ -394,15 +394,21 @@ let hasMore = true;
 
 
 checkAuth();
-
-
+// Re-verify on back/forward-cache restore (belt-and-suspenders with the
+// server-side no-store guard) so a cached page can never show without login
+window.addEventListener("pageshow", function(e){ if(e.persisted) checkAuth(); });
 
 async function checkAuth() {
-    const res = await fetch("/api/auth/me");
-    const data = await res.json();
+    let data;
+    try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        data = await res.json();
+    } catch(e) {
+        window.location.replace("/auth"); return;
+    }
 
     if (!data.user) {
-        window.location.href = "/auth";
+        window.location.replace("/auth");   // replace() so back button can't return here
         return;
     }
 
@@ -811,7 +817,8 @@ function renderLoadMore() {
 
 async function logout(){
     await fetch("/api/auth/logout");
-    window.location.href = "/";
+    try { localStorage.clear(); } catch(e) {}
+    window.location.replace("/auth");
 }
 
 

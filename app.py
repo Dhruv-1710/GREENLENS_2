@@ -949,11 +949,22 @@ UPLOAD_FOLDER = "static/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
+ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
 def save_upload(file_storage):
-    # Unique name avoids collisions; URL built with forward slashes so it
-    # works on Windows too (os.path.join gives backslashes there → 404s)
-    filename = f"{uuid.uuid4().hex[:8]}_{secure_filename(file_storage.filename)}"
-    file_storage.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+    # Robust across OS + odd filenames:
+    #  - always keep a valid image extension (unicode/emoji names can make
+    #    secure_filename() return '' → broken/undisplayable file)
+    #  - unique name avoids collisions
+    #  - URL uses forward slashes so it serves on Windows too
+    orig = secure_filename(file_storage.filename or "")
+    ext  = os.path.splitext(orig)[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        ext = ".png"
+    filename = f"{uuid.uuid4().hex[:12]}{ext}"
+    folder = app.config["UPLOAD_FOLDER"]
+    os.makedirs(folder, exist_ok=True)          # ensure it exists at save time
+    file_storage.save(os.path.join(folder, filename))
     return f"/static/uploads/{filename}"
 
 def public_upload_url(path):
