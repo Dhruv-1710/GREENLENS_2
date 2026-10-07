@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GreenLens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/static/favicon.ico">
+
+<style>
+
+/* GLOBAL */
+
+body{
+margin:0;
+font-family: 'Segoe UI', Arial, sans-serif;
+color:white;
+overflow-x:hidden;
+}
+
+/* BACKGROUND VIDEO */
+
+#bg-video{
+position:fixed;
+right:0;
+bottom:0;
+min-width:100%;
+min-height:100%;
+object-fit:cover;
+z-index:-2;
+}
+
+/* DARK OVERLAY */
+
+.overlay{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.55);
+z-index:-1;
+}
+
+/* NAVBAR */
+
+.navbar{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:70px;
+    box-sizing:border-box;
+
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+
+    padding:0 60px;
+
+    background:rgba(0,0,0,0.45);
+    backdrop-filter:blur(10px);
+
+    z-index:1000;
+}
+
+.logo{
+    font-size:22px;
+    font-weight:600;
+    color:#6CFF8F;
+}
+
+.nav-links{
+    display:flex;
+    align-items:center;
+}
+
+.nav-links a{
+    text-decoration:none;
+    color:white;
+    margin-left:28px;
+    font-size:16px;
+}
+
+.login-btn{
+    background:#2ecc71;
+    padding:8px 16px;
+    border-radius:6px;
+}
+/* HERO */
+
+.hero{
+height:100vh;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+text-align:center;
+padding:20px;
+}
+
+.hero h1{
+font-size:56px;
+margin-bottom:20px;
+}
+
+.hero p{
+max-width:700px;
+font-size:18px;
+line-height:1.6;
+opacity:0.9;
+}
+
+.hero-buttons{
+margin-top:40px;
+}
+
+.hero-buttons a{
+text-decoration:none;
+margin:10px;
+}
+
+.btn-primary{
+background:#2ecc71;
+padding:14px 28px;
+border:none;
+border-radius:8px;
+font-size:16px;
+cursor:pointer;
+color:white;
+}
+
+.btn-secondary{
+background:#3498db;
+padding:14px 28px;
+border:none;
+border-radius:8px;
+font-size:16px;
+cursor:pointer;
+color:white;
+}
+
+/* FEATURES */
+
+.section{
+padding:100px 40px;
+text-align:center;
+background:#0c0c0c;
+}
+
+.section h2{
+font-size:36px;
+margin-bottom:40px;
+}
+
+.features{
+display:flex;
+justify-content:center;
+flex-wrap:wrap;
+}
+
+.card{
+width:260px;
+background:#151515;
+margin:15px;
+padding:25px;
+border-radius:12px;
+transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+cursor:default;
+}
+
+.card:hover{
+transform: translateY(-8px);
+box-shadow: 0 12px 32px rgba(108, 255, 143, 0.15);
+background:#1c1c1c;
+}
+
+.card h3{
+color:#6CFF8F;
+}
+
+/* HOW IT WORKS */
+
+.steps{
+display:flex;
+justify-content:center;
+flex-wrap:wrap;
+margin-top:40px;
+}
+
+.step{
+width:240px;
+margin:15px;
+padding:20px;
+background:#151515;
+border-radius:10px;
+transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+cursor:default;
+}
+
+.step:hover{
+transform: translateY(-8px);
+box-shadow: 0 12px 32px rgba(52, 152, 219, 0.15);
+background:#1c1c1c;
+}
+
+.step h3{
+transition: color 0.3s ease;
+}
+
+.step:hover h3{
+color:#6CFF8F;
+}
+
+/* FOOTER */
+
+.footer{
+background:#000;
+text-align:center;
+padding:40px;
+font-size:14px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<!-- BACKGROUND VIDEO -->
+
+<video autoplay muted loop id="bg-video">
+<source src="/static/bg.mp4" type="video/mp4">
+</video>
+
+<div class="overlay"></div>
+
+<!-- NAVBAR -->
+
+<div class="navbar">
+
+    <div class="logo">
+        🌿 GreenLens
+    </div>
+
+    <div class="nav-links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/community">Community</a>
+        <a href="/auth" class="login-btn">Login</a>
+    </div>
+
+</div>
+
+<!-- HERO -->
+
+<div class="hero">
+
+<h1>Environmental Intelligence Platform</h1>
+
+<p>
+Analyze vegetation, pollution and urban climate using satellite imagery and AI.
+GreenLens helps cities plan tree plantation, monitor environmental health and
+build greener communities.
+</p>
+
+<div class="hero-buttons">
+
+<a href="/dashboard">
+<button class="btn-primary">Start Environmental Analysis</button>
+</a>
+
+<a href="/community">
+<button class="btn-secondary">Join Green Community</button>
+</a>
+
+</div>
+
+</div>
+
+<!-- FEATURES -->
+
+<div class="section">
+
+<h2>Platform Features</h2>
+
+<div class="features">
+
+<div class="card">
+<h3>Satellite NDVI</h3>
+<p>Analyze vegetation health using Sentinel satellite imagery and NDVI calculation.</p>
+</div>
+
+<div class="card">
+<h3>Pollution Analysis</h3>
+<p>Visualize pollution levels and environmental stress across urban areas.</p>
+</div>
+
+<div class="card">
+<h3>AI Plantation Plan</h3>
+<p>Receive AI recommendations for tree species and estimated pollution reduction.</p>
+</div>
+
+<div class="card">
+<h3>Rooftop Heatmap</h3>
+<p>Identify rooftop areas suitable for solar energy and cooling strategies.</p>
+</div>
+
+</div>
+
+</div>
+
+<!-- HOW IT WORKS -->
+
+<div class="section">
+
+<h2>How It Works</h2>
+
+<div class="steps">
+
+<div class="step">
+<h3>1. Select Area</h3>
+<p>Draw an area on the map to analyze a specific urban region.</p>
+</div>
+
+<div class="step">
+<h3>2. Run Analysis</h3>
+<p>GreenLens processes satellite data and environmental indicators.</p>
+</div>
+
+<div class="step">
+<h3>3. AI Insights</h3>
+<p>Get vegetation insights and AI-powered plantation recommendations.</p>
+</div>
+
+<div class="step">
+<h3>4. Collaborate</h3>
+<p>Join the community to share ideas and environmental solutions.</p>
+</div>
+
+</div>
+
+</div>
+
+<!-- FOOTER -->
+
+<div class="footer">
+
+GreenLens Environmental Intelligence Platform
+Built for smarter and greener cities.
+
+</div>
+
+</body>
+</html>

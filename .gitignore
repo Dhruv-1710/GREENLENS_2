@@ -1,0 +1,31 @@
+# Environment / secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Google Earth Engine service account key
+*.ee_credentials.json
+/etc/secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Instance / database
+instance/
+*.sqlite3
+*.db
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
